@@ -1,0 +1,29 @@
+# Build outputs
+bin/
+obj/
+out/
+
+# .NET
+*.user
+*.suo
+.vs/
+*.userprefs
+
+# Rider
+.idea/
+
+# Published
+publish/
+
+# Logs
+*.log
+logs/
+
+# Environment / secrets
+appsettings.*.local.json
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db

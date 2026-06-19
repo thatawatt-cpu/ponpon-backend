@@ -1,0 +1,324 @@
+PonPon API Spec for Manual Testing
+==================================
+
+Base URL
+- https://localhost:7005
+
+Notes
+- Opening https://localhost:7005/ and seeing 404 is normal because there is no home page.
+- For POST/PATCH requests, send header: Content-Type: application/json
+- For protected endpoints, send header: Authorization: Bearer <access_token>
+
+AUTH
+----
+
+1) Admin Login
+POST /api/admin/auth/login
+
+Request body:
+{
+  "email": "admin@ponpon.com",
+  "password": "#Punk123456!"
+}
+
+Example response:
+{
+  "accessToken": "jwt...",
+  "refreshToken": "refresh...",
+  "expiresAt": "2026-06-15T10:00:00Z",
+  "admin": {
+    "userId": "guid",
+    "email": "admin@ponpon.local",
+    "displayName": "Admin",
+    "roles": ["Admin"]
+  }
+}
+
+2) Refresh Token
+POST /api/auth/refresh-token
+
+Request body:
+{
+  "refreshToken": "refresh token here"
+}
+
+3) Current User
+GET /api/auth/me
+
+Requires:
+- Authorization: Bearer <access_token>
+
+4) Logout
+POST /api/auth/logout
+
+Requires:
+- Authorization: Bearer <access_token>
+
+Request body:
+{
+  "refreshToken": "refresh token here"
+}
+
+CATALOG PUBLIC
+--------------
+
+1) List Products
+GET /api/products
+
+Supported query:
+- keyword
+- category
+- page
+- pageSize
+
+Examples:
+- /api/products?page=1&pageSize=20
+- /api/products?keyword=ชาไทย
+- /api/products?category=เครื่องดื่ม&page=1&pageSize=50
+
+2) Product Detail
+GET /api/products/{id}
+
+Example:
+- /api/products/11111111-2222-3333-4444-555555555555
+
+3) Categories
+GET /api/categories
+
+Description:
+- Returns active categories stored in PonPon DB
+- No request body or authorization is required
+- Categories are ordered by name
+
+Example response:
+[
+  {
+    "id": "11111111-2222-3333-4444-555555555555",
+    "zortCategoryId": 12345,
+    "name": "Beverages"
+  }
+]
+
+Category sync behavior:
+- There is currently no separate category sync endpoint
+- POST /api/admin/products/sync-zort calls ZORT Product/GetCategorys first
+- ZORT categories are created or updated in PonPon DB before products are synced
+- GET /api/categories reads the saved categories from PonPon DB; it does not call ZORT directly
+
+CATALOG ADMIN
+-------------
+
+1) Sync Products From ZORT
+POST /api/admin/products/sync-zort
+
+Important:
+- Requires Authorization: Bearer <admin_access_token>
+- Calls ZORT Product/GetCategorys and saves category master data first
+- Sync imports only products whose ZORT tag contains "Lineliff"
+- SKU format BASE-VARIANT is grouped into one product with variants
+- It does not call add/update stock back to ZORT
+- It stores synced products into PonPon DB
+
+Minimal body:
+{}
+
+Recommended body:
+{
+  "pageStart": 1,
+  "pageLimit": 100,
+  "maxPages": 1,
+  "deactivateMissingProducts": false
+}
+
+Field meaning:
+- pageStart = starting page from ZORT
+- pageLimit = items per page from ZORT
+- maxPages = how many pages to sync in this run
+- deactivateMissingProducts = mark previously known Lineliff ZORT products as missing if not found in this sync run
+
+Example response:
+{
+  "totalFetched": 10,
+  "created": 3,
+  "updated": 7,
+  "unchanged": 0,
+  "deactivated": 0,
+  "failed": 0,
+  "errors": []
+}
+
+2) Admin Product List
+GET /api/admin/products
+
+Supported query:
+- keyword
+- status
+- source
+- page
+- pageSize
+
+Examples:
+- /api/admin/products?page=1&pageSize=20
+- /api/admin/products?status=Active
+- /api/admin/products?source=Zort
+
+3) Admin Product Detail
+GET /api/admin/products/{id}
+
+4) Update Product Visibility
+PATCH /api/admin/products/{id}/visibility
+
+Request body:
+{
+  "isVisibleOnLiff": true
+}
+
+ERRORS
+------
+
+Application errors usually return:
+{
+  "code": "bad_request",
+  "message": "..."
+}
+
+ASP.NET may also return ProblemDetails for framework-level issues.
+Example:
+- 415 Unsupported Media Type when Content-Type is missing or not application/json
+
+SUGGESTED TEST FLOW
+-------------------
+
+1) Login as admin
+POST /api/admin/auth/login
+
+2) Copy accessToken
+
+3) Verify auth
+GET /api/auth/me
+
+4) Sync one page from ZORT
+POST /api/admin/products/sync-zort
+{
+  "pageStart": 1,
+  "pageLimit": 100,
+  "maxPages": 1,
+  "deactivateMissingProducts": false
+}
+
+5) Check synced products in admin list
+GET /api/admin/products?page=1&pageSize=20
+
+6) Check synced categories
+GET /api/categories
+
+7) Check public product list
+GET /api/products?page=1&pageSize=20
+
+8) Toggle LIFF visibility on a product
+PATCH /api/admin/products/{id}/visibility
+{
+  "isVisibleOnLiff": true
+}
+
+ORDERING ADMIN
+--------------
+
+1) Sync LINE LIFF Orders From ZORT
+POST /api/admin/orders/sync-zort
+
+Requires:
+- Authorization: Bearer <admin_access_token>
+- Content-Type: application/json
+
+Request body:
+{
+  "pageStart": 1,
+  "pageLimit": 100,
+  "maxPages": 1
+}
+
+Description:
+- Calls ZORT Order/GetOrders with saleschannel=LineLiff
+- Creates or updates ordering.orders, ordering.order_items, and ordering.order_payments
+- Stores the complete ZORT payload in jsonb
+
+2) Admin Order List
+GET /api/admin/orders
+
+Supported query:
+- keyword
+- status
+- paymentStatus
+- page
+- pageSize
+
+3) Admin Order Detail
+GET /api/admin/orders/{id}
+
+Description:
+- Reads the order, items, and payments from PonPon DB
+- Does not call ZORT directly
+
+ORDERING CUSTOMER
+-----------------
+
+1) Add Order
+POST /api/orders
+
+Requires:
+- Authorization: Bearer <customer_access_token>
+- Content-Type: application/json
+
+Request body:
+{
+  "clientRequestId": "11111111-2222-3333-4444-555555555555",
+  "customerName": "Customer",
+  "customerEmail": "customer@example.com",
+  "customerPhone": "0812345678",
+  "customerAddress": "Billing address",
+  "shippingName": "Customer",
+  "shippingPhone": "0812345678",
+  "shippingAddress": "Shipping address",
+  "shippingChannel": "Delivery",
+  "shippingAmount": 0,
+  "description": null,
+  "items": [
+    {
+      "productId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "variantId": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+      "quantity": 1
+    }
+  ]
+}
+
+Behavior:
+- Loads SKU, name, price, visibility, and stock from Catalog DB
+- Uses variantId when a product has multiple variants
+- Calculates item totals on the server
+- Sends AddOrder to ZORT with saleschannel=LineLiff
+- Uses clientRequestId as ZORT uniquenumber
+- Saves the returned ZORT order into Ordering DB
+
+2) My Orders
+GET /api/orders
+
+Requires:
+- Authorization: Bearer <customer_access_token>
+
+Supported query:
+- status
+- paymentStatus
+- page
+- pageSize
+
+3) My Order Detail
+GET /api/orders/{id}
+
+Security:
+- Returns only orders linked to the customer ID in the access token
+- Returns 404 when the order belongs to another customer
+
+Extra local reminder
+- If sync fails with transient DB/connectivity errors, check the actual PostgreSQL/Supabase connection being used by the API process.
+- If you get 415 on POST/PATCH, make sure the request body is raw JSON and Content-Type is application/json.

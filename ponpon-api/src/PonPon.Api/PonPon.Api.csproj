@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PonPon.Shared\PonPon.Shared.csproj" />
+    <ProjectReference Include="..\PonPon.Modules.Identity\PonPon.Modules.Identity.csproj" />
+    <ProjectReference Include="..\PonPon.Modules.Catalog\PonPon.Modules.Catalog.csproj" />
+    <ProjectReference Include="..\PonPon.Modules.Ordering\PonPon.Modules.Ordering.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>7ab09d04-bd3a-496d-bbff-fd8ab23a3cf1</UserSecretsId>
+  </PropertyGroup>
+
+</Project>
