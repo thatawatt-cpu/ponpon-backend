@@ -4,4 +4,4 @@ public sealed record GetMyOrdersRequest(
     string? Status,
     string? PaymentStatus,
     int Page = 1,
-    int PageSize = 20);
+    int PageSize = 10);

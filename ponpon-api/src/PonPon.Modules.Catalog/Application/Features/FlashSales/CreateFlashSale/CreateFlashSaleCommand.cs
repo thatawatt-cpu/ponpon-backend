@@ -5,4 +5,4 @@ public sealed record CreateFlashSaleCommand(
     DateOnly StartDate,
     DateOnly EndDate,
     string[] Slots,
-    IReadOnlyList<(Guid ProductId, decimal SalePrice)> Products);
+    IReadOnlyList<(Guid ProductId, decimal SalePrice, int? QuantityLimit)> Products);

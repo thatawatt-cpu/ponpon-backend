@@ -11,5 +11,6 @@ public sealed class FlashSaleProductConfiguration : IEntityTypeConfiguration<Fla
         builder.ToTable("flash_sale_products");
         builder.HasKey(x => new { x.FlashSaleId, x.ProductId });
         builder.Property(x => x.SalePrice).HasPrecision(18, 2).IsRequired();
+        builder.Property(x => x.ReservedQuantity).HasDefaultValue(0).IsRequired();
     }
 }

@@ -11,7 +11,10 @@ public sealed record AddOrderCommand(
     string ShippingAddress,
     string? ShippingChannel,
     decimal ShippingAmount,
+    string? CouponCode,
     string? Description,
-    IReadOnlyCollection<AddOrderItemCommand> Items);
+    IReadOnlyCollection<AddOrderItemCommand> Items,
+    string? PaymentMethod = null,
+    IReadOnlyCollection<string>? CouponCodes = null);
 
 public sealed record AddOrderItemCommand(Guid ProductId, Guid? VariantId, int Quantity);

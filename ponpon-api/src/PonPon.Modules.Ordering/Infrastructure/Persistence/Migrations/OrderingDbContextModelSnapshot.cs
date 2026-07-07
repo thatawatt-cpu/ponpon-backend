@@ -33,6 +33,21 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<DateTime?>("CanceledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CanceledBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("CheckoutPaymentMethod")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -75,6 +90,9 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<bool>("HasStockReservation")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("IntegrationCustomer")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
@@ -86,6 +104,9 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsCod")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsPaymentCreationPending")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime>("LastSyncedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -94,6 +115,21 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("OmiseChargeId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("OmiseRefundId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("OmiseRefundStatus")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("OmiseRefundedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("OrderDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -101,10 +137,19 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<DateTime?>("PaymentCreationStartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PaymentExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("PaymentStatus")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PricingSnapshotJson")
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("RawZortJson")
                         .IsRequired()
@@ -113,6 +158,10 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                     b.Property<string>("Reference")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
+
+                    b.Property<decimal>("RefundedAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("SalesChannel")
                         .IsRequired()
@@ -185,6 +234,13 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Number");
 
+                    b.HasIndex("OmiseChargeId")
+                        .IsUnique()
+                        .HasFilter("\"OmiseChargeId\" IS NOT NULL");
+
+                    b.HasIndex("PaymentExpiresAt")
+                        .HasFilter("\"PaymentExpiresAt\" IS NOT NULL");
+
                     b.HasIndex("ZortOrderId")
                         .IsUnique();
 
@@ -220,10 +276,17 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
+
+                    b.Property<string>("OptionsJson")
+                        .HasColumnType("jsonb");
 
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid");
@@ -231,6 +294,9 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                     b.Property<decimal>("PricePerUnit")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid");
 
                     b.Property<int>("ProductType")
                         .HasColumnType("integer");
@@ -256,12 +322,19 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
                     b.Property<long?>("ZortProductId")
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
 
                     b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
 
                     b.HasIndex("ZortProductId");
 
@@ -305,6 +378,103 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                     b.ToTable("order_payments", "ordering");
                 });
 
+            modelBuilder.Entity("PonPon.Modules.Ordering.Domain.Returns.OrderReturnRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdminNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EvidenceImageUrlsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("order_return_requests", "ordering");
+                });
+
+            modelBuilder.Entity("PonPon.Modules.Ordering.Domain.SyncRuns.OrderSyncRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BackgroundJobId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Created")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ErrorsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("Failed")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("TotalFetched")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Updated")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedAtUtc");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("order_sync_runs", "ordering");
+                });
+
             modelBuilder.Entity("PonPon.Modules.Ordering.Domain.Orders.OrderItem", b =>
                 {
                     b.HasOne("PonPon.Modules.Ordering.Domain.Orders.Order", null)
@@ -319,6 +489,15 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Migrations
                     b.HasOne("PonPon.Modules.Ordering.Domain.Orders.Order", null)
                         .WithMany("Payments")
                         .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PonPon.Modules.Ordering.Domain.Returns.OrderReturnRequest", b =>
+                {
+                    b.HasOne("PonPon.Modules.Ordering.Domain.Orders.Order", null)
+                        .WithOne()
+                        .HasForeignKey("PonPon.Modules.Ordering.Domain.Returns.OrderReturnRequest", "OrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

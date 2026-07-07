@@ -1,7 +1,9 @@
 using PonPon.Modules.Ordering.Application.Abstractions;
 using PonPon.Modules.Ordering.Domain.Orders;
+using PonPon.Modules.Ordering.Domain.SyncRuns;
 using PonPon.Modules.Ordering.Infrastructure.ExternalServices.Zort;
 using PonPon.Shared.Application.Abstractions;
+using PonPon.Modules.Ordering.Application.Services;
 
 namespace PonPon.Modules.Ordering.Application.Features.Orders.SyncOrdersFromZort;
 
@@ -11,24 +13,69 @@ public sealed class SyncOrdersFromZortHandler
 
     private readonly IZortOrderClient _zortClient;
     private readonly IOrderRepository _orders;
+    private readonly IOrderSyncRunRepository _syncRuns;
     private readonly IOrderingUnitOfWork _unitOfWork;
     private readonly IDateTimeProvider _clock;
+    private readonly OrderStockReservationService _stockReservations;
 
     public SyncOrdersFromZortHandler(
         IZortOrderClient zortClient,
         IOrderRepository orders,
+        IOrderSyncRunRepository syncRuns,
         IOrderingUnitOfWork unitOfWork,
+        OrderStockReservationService stockReservations,
         IDateTimeProvider clock)
     {
         _zortClient = zortClient;
         _orders = orders;
+        _syncRuns = syncRuns;
         _unitOfWork = unitOfWork;
+        _stockReservations = stockReservations;
         _clock = clock;
     }
 
     public async Task<SyncOrdersFromZortResponse> HandleAsync(
         SyncOrdersFromZortCommand command,
         CancellationToken cancellationToken = default)
+    {
+        var syncRun = command.SyncRunId.HasValue
+            ? await _syncRuns.GetByIdAsync(command.SyncRunId.Value, cancellationToken)
+            : null;
+
+        if (syncRun is null)
+        {
+            syncRun = OrderSyncRun.Queue(_clock.UtcNow);
+            await _syncRuns.AddAsync(syncRun, cancellationToken);
+        }
+
+        syncRun.MarkRunning(_clock.UtcNow);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            var result = await ExecuteAsync(syncRun.Id, command, cancellationToken);
+            syncRun.MarkCompleted(
+                result.TotalFetched,
+                result.Created,
+                result.Updated,
+                result.Failed,
+                result.Errors,
+                _clock.UtcNow);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            syncRun.MarkFailed(ex.Message, _clock.UtcNow);
+            await _unitOfWork.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    private async Task<SyncOrdersFromZortResponse> ExecuteAsync(
+        Guid syncRunId,
+        SyncOrdersFromZortCommand command,
+        CancellationToken cancellationToken)
     {
         var page = Math.Max(command.PageStart, 1);
         var pageLimit = Math.Clamp(command.PageLimit, 1, 500);
@@ -67,6 +114,8 @@ public sealed class SyncOrdersFromZortHandler
                     else
                     {
                         order.ApplyZortSnapshot(snapshot, _clock.UtcNow);
+                        if (IsVoided(order.Status))
+                            await _stockReservations.ReleaseAsync(order, cancellationToken);
                         updated++;
                     }
 
@@ -89,6 +138,10 @@ public sealed class SyncOrdersFromZortHandler
             }
         }
 
-        return new SyncOrdersFromZortResponse(totalFetched, created, updated, failed, errors);
+        return new SyncOrdersFromZortResponse(syncRunId, totalFetched, created, updated, failed, errors);
     }
+
+    private static bool IsVoided(string status)
+        => string.Equals(status, ZortOrderStatus.Voided.ToString(), StringComparison.OrdinalIgnoreCase)
+           || string.Equals(status, ((int)ZortOrderStatus.Voided).ToString(), StringComparison.OrdinalIgnoreCase);
 }

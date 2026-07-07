@@ -1,4 +1,5 @@
 using PonPon.Api.Extensions;
+using PonPon.Api.Realtime;
 using PonPon.Modules.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +14,7 @@ await app.Services.SeedIdentityModuleAsync();
 
 app.UsePonPonMiddlewares();
 app.MapControllers();
+app.MapHub<ShopNotificationHub>("/hubs/shop-notifications");
 
 app.Run();
 

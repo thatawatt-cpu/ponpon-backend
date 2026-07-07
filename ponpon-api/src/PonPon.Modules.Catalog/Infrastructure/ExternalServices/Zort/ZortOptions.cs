@@ -8,4 +8,5 @@ public sealed class ZortOptions
     public string ApiSecret { get; init; } = string.Empty;
     public int DefaultPageLimit { get; init; } = 100;
     public string WarehouseCode { get; init; } = string.Empty;
+    public string WebhookKey { get; init; } = string.Empty;
 }

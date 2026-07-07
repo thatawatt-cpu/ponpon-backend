@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Catalog.Application.Features.Products.GetProductById;
 using PonPon.Shared.Application.Exceptions;
@@ -71,6 +72,9 @@ public sealed class GetProductBySlugHandler
                 x.UnitText,
                 x.ImageUrl,
                 x.IsActiveFromZort,
-                x.Status)).ToArray());
+                x.Status,
+                x.OptionsJson is not null
+                    ? JsonSerializer.Deserialize<ProductVariantOptionResponse[]>(x.OptionsJson) ?? []
+                    : [])).ToArray());
     }
 }

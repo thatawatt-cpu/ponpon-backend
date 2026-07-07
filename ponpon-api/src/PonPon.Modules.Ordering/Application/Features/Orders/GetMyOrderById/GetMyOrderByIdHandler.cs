@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PonPon.Modules.Ordering.Application.Abstractions;
 using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
@@ -44,8 +45,15 @@ public sealed class GetMyOrderByIdHandler
             order.Description,
             order.IsCod,
             order.Currency,
+            order.CancellationReason,
+            order.CanceledAtUtc,
+            order.OmiseRefundStatus,
+            order.RefundedAmount,
+            order.PricingSnapshotJson,
             order.Items.Select(x => new MyOrderItemResponse(
                 x.Id,
+                x.ProductId,
+                x.VariantId,
                 x.Sku,
                 x.Name,
                 x.Quantity,
@@ -53,7 +61,11 @@ public sealed class GetMyOrderByIdHandler
                 x.PricePerUnit,
                 x.Discount,
                 x.DiscountAmount,
-                x.TotalPrice)).ToArray(),
+                x.TotalPrice,
+                x.ImageUrl,
+                x.OptionsJson is not null
+                    ? JsonSerializer.Deserialize<MyOrderItemOptionResponse[]>(x.OptionsJson) ?? []
+                    : [])).ToArray(),
             order.Payments.Select(x => new MyOrderPaymentResponse(
                 x.Id,
                 x.Name,

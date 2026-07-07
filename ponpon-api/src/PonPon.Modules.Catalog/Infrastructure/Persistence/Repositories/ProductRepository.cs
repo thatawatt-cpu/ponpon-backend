@@ -117,7 +117,7 @@ public sealed class ProductRepository : IProductRepository
 
     public Task<ProductVariant?> GetVariantByIdAsync(Guid variantId, CancellationToken cancellationToken = default)
     {
-        return _dbContext.ProductVariants.AsNoTracking().FirstOrDefaultAsync(x => x.Id == variantId, cancellationToken);
+        return _dbContext.ProductVariants.FirstOrDefaultAsync(x => x.Id == variantId, cancellationToken);
     }
 
     public async Task<IReadOnlyCollection<Product>> GetLiffZortProductsNotSeenAsync(IReadOnlySet<long> seenZortProductIds, CancellationToken cancellationToken = default)
@@ -182,5 +182,107 @@ public sealed class ProductRepository : IProductRepository
         var normalized = keyword.Trim();
         return query.Where(x => x.Name.Contains(normalized) || (x.BaseSku != null && x.BaseSku.Contains(normalized)) || (x.Barcode != null && x.Barcode.Contains(normalized)));
     }
-}
 
+    public async Task<IReadOnlyDictionary<string, (string? ImageUrl, string? OptionsJson)>> GetVariantImageAndOptionsBySkusAsync(
+        IReadOnlySet<string> skus,
+        CancellationToken cancellationToken = default)
+    {
+        var results = await _dbContext.Set<ProductVariant>()
+            .AsNoTracking()
+            .Where(x => skus.Contains(x.Sku))
+            .Select(x => new { x.Sku, x.ImageUrl, x.OptionsJson })
+            .ToArrayAsync(cancellationToken);
+
+        return results.ToDictionary(x => x.Sku, x => (x.ImageUrl, x.OptionsJson));
+    }
+
+    public async Task<bool> TryReserveVariantsStockAsync(
+        IReadOnlyDictionary<Guid, int> variantQuantities,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        foreach (var (variantId, quantity) in variantQuantities)
+        {
+            if (quantity <= 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return false;
+            }
+
+            var affected = await _dbContext.Set<ProductVariant>()
+                .Where(x => x.Id == variantId && x.AvailableStock >= quantity)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(
+                        v => v.AvailableStock,
+                        v => v.AvailableStock - quantity),
+                    cancellationToken);
+
+            if (affected != 1)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return false;
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task ReleaseVariantsStockAsync(
+        IReadOnlyDictionary<Guid, int> variantQuantities,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var (variantId, quantity) in variantQuantities.Where(x => x.Value > 0))
+        {
+            await _dbContext.Set<ProductVariant>()
+                .Where(x => x.Id == variantId)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(
+                        v => v.AvailableStock,
+                        v => v.AvailableStock + quantity),
+                    cancellationToken);
+        }
+    }
+
+    public async Task<bool> TryReleaseOrderVariantsStockAsync(
+        Guid orderId,
+        IReadOnlyDictionary<Guid, int> variantQuantities,
+        DateTime releasedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var claimed = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+             UPDATE ordering.orders
+             SET "HasStockReservation" = FALSE,
+                 "UpdatedAtUtc" = {releasedAtUtc}
+             WHERE "Id" = {orderId}
+               AND "HasStockReservation" = TRUE
+             """,
+            cancellationToken);
+
+        if (claimed != 1)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        foreach (var (variantId, quantity) in variantQuantities.Where(x => x.Value > 0))
+        {
+            var affected = await _dbContext.Set<ProductVariant>()
+                .Where(x => x.Id == variantId)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(
+                        v => v.AvailableStock,
+                        v => v.AvailableStock + quantity),
+                    cancellationToken);
+
+            if (affected != 1)
+                throw new InvalidOperationException($"Variant {variantId} was not found while releasing stock.");
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+}

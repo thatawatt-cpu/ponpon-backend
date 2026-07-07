@@ -15,7 +15,7 @@ public sealed class FlashSale
     public DateTime? UpdatedAt { get; private set; }
     public IReadOnlyCollection<FlashSaleProduct> Products => _products.AsReadOnly();
 
-    public static FlashSale Create(string name, DateOnly startDate, DateOnly endDate, string[] slots, IReadOnlyList<(Guid ProductId, decimal SalePrice)> products, DateTime now)
+    public static FlashSale Create(string name, DateOnly startDate, DateOnly endDate, string[] slots, IReadOnlyList<(Guid ProductId, decimal SalePrice, int? QuantityLimit)> products, DateTime now)
     {
         var flashSale = new FlashSale
         {
@@ -30,7 +30,7 @@ public sealed class FlashSale
         return flashSale;
     }
 
-    public void Update(string name, DateOnly startDate, DateOnly endDate, string[] slots, IReadOnlyList<(Guid ProductId, decimal SalePrice)> products, DateTime now)
+    public void Update(string name, DateOnly startDate, DateOnly endDate, string[] slots, IReadOnlyList<(Guid ProductId, decimal SalePrice, int? QuantityLimit)> products, DateTime now)
     {
         Name = name;
         StartDate = startDate;
@@ -41,9 +41,9 @@ public sealed class FlashSale
         SetProducts(products);
     }
 
-    private void SetProducts(IReadOnlyList<(Guid ProductId, decimal SalePrice)> products)
+    private void SetProducts(IReadOnlyList<(Guid ProductId, decimal SalePrice, int? QuantityLimit)> products)
     {
-        foreach (var (productId, salePrice) in products)
-            _products.Add(new FlashSaleProduct(Id, productId, salePrice));
+        foreach (var (productId, salePrice, quantityLimit) in products)
+            _products.Add(new FlashSaleProduct(Id, productId, salePrice, quantityLimit));
     }
 }

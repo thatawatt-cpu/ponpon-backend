@@ -50,6 +50,8 @@ public sealed record ProductImageResponse(
     int SortOrder,
     bool IsPrimary);
 
+public sealed record ProductVariantOptionResponse(string Name, string Value);
+
 public sealed record ProductVariantResponse(
     Guid Id,
     long? ZortProductId,
@@ -63,4 +65,5 @@ public sealed record ProductVariantResponse(
     string? UnitText,
     string? ImageUrl,
     bool IsActiveFromZort,
-    ProductStatus Status);
+    ProductStatus Status,
+    IReadOnlyCollection<ProductVariantOptionResponse> Options);

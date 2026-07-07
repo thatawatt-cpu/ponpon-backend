@@ -100,6 +100,14 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("QuantityLimit")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ReservedQuantity")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<decimal>("SalePrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -107,6 +115,36 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
                     b.HasKey("FlashSaleId", "ProductId");
 
                     b.ToTable("flash_sale_products", "catalog");
+                });
+
+            modelBuilder.Entity("PonPon.Modules.Catalog.Domain.FlashSales.FlashSaleReservation", b =>
+                {
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FlashSaleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsReleased")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ReleasedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("OrderId", "FlashSaleId", "ProductId");
+
+                    b.HasIndex("FlashSaleId", "ProductId", "IsReleased");
+
+                    b.ToTable("flash_sale_reservations", "catalog");
                 });
 
             modelBuilder.Entity("PonPon.Modules.Catalog.Domain.HomeSlides.HomeSlide", b =>
@@ -401,6 +439,9 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("LastSyncedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("OptionsJson")
+                        .HasColumnType("jsonb");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
@@ -464,6 +505,104 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProductId", "VariantCode");
 
                     b.ToTable("product_variants", "catalog");
+                });
+
+            modelBuilder.Entity("PonPon.Modules.Catalog.Domain.SyncRuns.ProductSyncRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BackgroundJobId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Created")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Deactivated")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ErrorsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("Failed")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("TotalFetched")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Unchanged")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Updated")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedAtUtc");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("product_sync_runs", "catalog");
+                });
+
+            modelBuilder.Entity("PonPon.Modules.Catalog.Domain.Warehouses.Warehouse", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("ZortWarehouseId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("ZortWarehouseId")
+                        .IsUnique();
+
+                    b.ToTable("warehouses", "catalog");
                 });
 
             modelBuilder.Entity("PonPon.Modules.Catalog.Domain.FlashSales.FlashSaleProduct", b =>

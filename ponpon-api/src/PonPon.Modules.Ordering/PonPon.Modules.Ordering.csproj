@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\PonPon.Shared\PonPon.Shared.csproj" />
     <ProjectReference Include="..\PonPon.Modules.Catalog\PonPon.Modules.Catalog.csproj" />
+    <ProjectReference Include="..\PonPon.Modules.Promotion\PonPon.Modules.Promotion.csproj" />
   </ItemGroup>
 
   <ItemGroup>

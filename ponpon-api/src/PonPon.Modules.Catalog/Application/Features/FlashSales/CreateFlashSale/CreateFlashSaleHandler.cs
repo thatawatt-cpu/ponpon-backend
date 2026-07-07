@@ -19,6 +19,8 @@ public sealed class CreateFlashSaleHandler
 
     public async Task<Guid> HandleAsync(CreateFlashSaleCommand command, CancellationToken cancellationToken = default)
     {
+        FlashSaleValidator.Validate(
+            command.Name, command.StartDate, command.EndDate, command.Slots, command.Products);
         var flashSale = FlashSale.Create(
             command.Name,
             command.StartDate,

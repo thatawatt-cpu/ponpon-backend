@@ -1,50 +1,78 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PonPon.Modules.Ordering.Application.Features.Orders.HandleZortWebhook;
 using PonPon.Modules.Ordering.Infrastructure.ExternalServices.Zort;
+using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Ordering.Controllers;
 
 [ApiController]
-[Route("api/webhooks/zort")]
+[Route("api/webhooks/zort/order")]
 [AllowAnonymous]
 public sealed class ZortWebhookController : ControllerBase
 {
-    private static readonly HashSet<string> OrderEvents = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "ADDORDER", "UPDATEORDER", "DELETEORDER", "UPDATEORDERTRACKING", "UPDATEORDERPAYMENT"
-    };
-
     [HttpPost]
     public async Task<IActionResult> HandleWebhook(
-        [FromQuery] string method,
+        [FromQuery] string? method,
         [FromQuery] string? id,
-        [FromServices] HandleZortWebhookHandler handler,
+        [FromQuery] string? orderid,
+        [FromQuery] string? status,
+        [FromQuery] string? paymentstatus,
         [FromServices] IOptions<ZortOrderOptions> options,
+        [FromServices] IBackgroundTaskQueue queue,
+        [FromServices] ILogger<ZortWebhookController> logger,
         CancellationToken cancellationToken)
     {
+        var effectiveMethod = string.IsNullOrWhiteSpace(method) ? "UPDATEORDER" : method;
+
         if (!VerifyWebhookKey(options.Value))
+        {
+            logger.LogWarning("Zort webhook rejected: invalid key1. Method={Method}", effectiveMethod);
             return Unauthorized();
+        }
 
-        if (!OrderEvents.Contains(method))
+        if (!string.Equals(effectiveMethod, "UPDATEORDER", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogDebug("Zort webhook ignored: unrecognized method={Method}", effectiveMethod);
             return Ok();
+        }
 
-        var zortOrderId = await ExtractZortOrderIdAsync(id, cancellationToken);
-        if (zortOrderId is null)
+        var payload = await ReadPayloadAsync(id ?? orderid, status, paymentstatus, cancellationToken);
+        if (payload.ZortOrderId is null)
+        {
+            logger.LogWarning("Zort webhook {Method}: could not determine order ID", effectiveMethod);
             return BadRequest("Could not determine Zort order ID.");
+        }
 
-        try
+        var hasStatus = !string.IsNullOrWhiteSpace(payload.Status);
+        var hasPaymentStatus = !string.IsNullOrWhiteSpace(payload.PaymentStatus);
+
+        if (hasStatus && hasPaymentStatus && (!IsPacked(payload.Status) || !IsPaid(payload.PaymentStatus)))
         {
-            await handler.HandleAsync(new HandleZortWebhookCommand(zortOrderId.Value), cancellationToken);
+            logger.LogDebug(
+                "Zort webhook ignored: Method={Method} ZortOrderId={ZortOrderId} Status={Status} PaymentStatus={PaymentStatus}",
+                effectiveMethod,
+                payload.ZortOrderId,
+                payload.Status,
+                payload.PaymentStatus);
+            return Ok();
         }
-        catch (BadRequestException)
+
+        logger.LogInformation("Zort webhook received: Method={Method} ZortOrderId={ZortOrderId}", effectiveMethod, payload.ZortOrderId);
+
+        var command = new HandleZortWebhookCommand(payload.ZortOrderId.Value, effectiveMethod);
+        queue.Enqueue(async (sp, ct) =>
         {
-            // Order no longer accessible in Zort (e.g. hard-deleted), acknowledge to stop retries
-        }
+            var handler = sp.GetRequiredService<HandleZortWebhookHandler>();
+            await handler.HandleAsync(command, ct);
+        });
 
         return Ok();
     }
@@ -54,16 +82,21 @@ public sealed class ZortWebhookController : ControllerBase
         if (string.IsNullOrWhiteSpace(options.WebhookKey))
             return true;
 
-        if (!Request.Headers.TryGetValue("Authorization", out var authHeader))
+        if (!Request.Headers.TryGetValue("key1", out var key1))
             return false;
 
-        return string.Equals(authHeader.ToString(), $"Basic {options.WebhookKey}", StringComparison.Ordinal);
+        return string.Equals(key1.ToString(), options.WebhookKey, StringComparison.Ordinal);
     }
 
-    private async Task<long?> ExtractZortOrderIdAsync(string? queryId, CancellationToken cancellationToken)
+    private async Task<ZortWebhookPayload> ReadPayloadAsync(
+        string? queryId,
+        string? queryStatus,
+        string? queryPaymentStatus,
+        CancellationToken cancellationToken)
     {
+        long? zortOrderId = null;
         if (!string.IsNullOrEmpty(queryId) && long.TryParse(queryId, out var fromQuery))
-            return fromQuery;
+            zortOrderId = fromQuery;
 
         string payloadJson;
         var contentType = Request.ContentType ?? string.Empty;
@@ -71,9 +104,24 @@ public sealed class ZortWebhookController : ControllerBase
         if (contentType.Contains("application/x-www-form-urlencoded"))
         {
             var form = await Request.ReadFormAsync(cancellationToken);
-            payloadJson = form.TryGetValue("payload", out var formPayload)
-                ? formPayload.ToString()
-                : string.Empty;
+            if (form.TryGetValue("payload", out var formPayload) && !string.IsNullOrWhiteSpace(formPayload.ToString()))
+            {
+                payloadJson = formPayload.ToString();
+            }
+            else
+            {
+                if (zortOrderId is null)
+                {
+                    var formId = ReadFormValue(form, "id") ?? ReadFormValue(form, "orderid");
+                    if (long.TryParse(formId, out var parsedId))
+                        zortOrderId = parsedId;
+                }
+
+                return new ZortWebhookPayload(
+                    zortOrderId,
+                    ReadFormValue(form, "status") ?? queryStatus,
+                    ReadFormValue(form, "paymentstatus") ?? queryPaymentStatus);
+            }
         }
         else
         {
@@ -82,7 +130,7 @@ public sealed class ZortWebhookController : ControllerBase
         }
 
         if (string.IsNullOrWhiteSpace(payloadJson))
-            return null;
+            return new ZortWebhookPayload(zortOrderId, queryStatus, queryPaymentStatus);
 
         try
         {
@@ -90,25 +138,83 @@ public sealed class ZortWebhookController : ControllerBase
             var root = doc.RootElement;
 
             if (root.ValueKind != JsonValueKind.Object)
-                return null;
+                return new ZortWebhookPayload(zortOrderId, null, null);
 
             foreach (var name in new[] { "id", "orderid" })
             {
-                if (!root.TryGetProperty(name, out var prop))
+                if (!TryGetProperty(root, name, out var prop))
                     continue;
 
                 if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt64(out var numberId))
-                    return numberId;
+                    zortOrderId = numberId;
 
                 if (prop.ValueKind == JsonValueKind.String && long.TryParse(prop.GetString(), out var parsedId))
-                    return parsedId;
+                    zortOrderId = parsedId;
             }
+
+            return new ZortWebhookPayload(
+                zortOrderId,
+                ReadString(root, "status") ?? queryStatus,
+                ReadString(root, "paymentstatus") ?? queryPaymentStatus);
         }
         catch (JsonException)
         {
             // Malformed payload
         }
 
+        return new ZortWebhookPayload(zortOrderId, queryStatus, queryPaymentStatus);
+    }
+
+    private static bool IsPacked(string? status)
+        => string.Equals(status, "Packed", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(status, "5", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPaid(string? paymentStatus)
+        => string.Equals(paymentStatus, "Paid", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(paymentStatus, "1", StringComparison.OrdinalIgnoreCase);
+
+    private static string? ReadString(JsonElement root, string propertyName)
+        => TryGetProperty(root, propertyName, out var property)
+            ? property.ValueKind switch
+            {
+                JsonValueKind.String => property.GetString(),
+                JsonValueKind.Number => property.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => null
+            }
+            : null;
+
+    private static bool TryGetProperty(JsonElement root, string propertyName, out JsonElement value)
+    {
+        if (root.TryGetProperty(propertyName, out value))
+        {
+            return true;
+        }
+
+        foreach (var property in root.EnumerateObject())
+        {
+            if (property.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string? ReadFormValue(IFormCollection form, string key)
+    {
+        foreach (var item in form)
+        {
+            if (item.Key.Equals(key, StringComparison.OrdinalIgnoreCase))
+                return item.Value.ToString();
+        }
+
         return null;
     }
+
+    private sealed record ZortWebhookPayload(long? ZortOrderId, string? Status, string? PaymentStatus);
 }

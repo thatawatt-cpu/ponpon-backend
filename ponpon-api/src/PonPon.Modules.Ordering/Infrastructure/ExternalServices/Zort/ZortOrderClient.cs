@@ -35,16 +35,14 @@ public sealed class ZortOrderClient : IZortOrderClient
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new BadRequestException($"ZORT AddOrder failed with HTTP {(int)response.StatusCode}.");
-        }
 
         using var document = JsonDocument.Parse(rawJson);
         var root = document.RootElement;
+        EnsureZortSuccess(response, root, "ZORT AddOrder");
+
         return FindLong(root, "id")
             ?? FindLong(root, "orderid")
-            ?? throw new BadRequestException("ZORT AddOrder did not return an order id.");
+            ?? throw new BadRequestException(ReadString(root, "resDesc") ?? "ZORT AddOrder did not return an order id.");
     }
 
     public async Task<ZortOrderDto> GetOrderDetailAsync(
@@ -57,12 +55,9 @@ public sealed class ZortOrderClient : IZortOrderClient
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new BadRequestException($"ZORT GetOrderDetail failed with HTTP {(int)response.StatusCode}.");
-        }
 
         using var document = JsonDocument.Parse(rawJson);
+        EnsureZortSuccess(response, document.RootElement, "ZORT GetOrderDetail");
         var element = FindOrder(document.RootElement);
         return JsonSerializer.Deserialize<ZortOrderDto>(element.GetRawText(), JsonOptions)
             ?? throw new BadRequestException("ZORT GetOrderDetail returned an empty order.");
@@ -81,29 +76,120 @@ public sealed class ZortOrderClient : IZortOrderClient
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new BadRequestException($"ZORT GetOrders failed with HTTP {(int)response.StatusCode}.");
-        }
+
+        using var document = JsonDocument.Parse(rawJson);
+        EnsureZortSuccess(response, document.RootElement, "ZORT GetOrders");
 
         return ParseResponse(rawJson);
+    }
+
+    public async Task UpdateOrderPaymentAsync(
+        string orderNumber,
+        decimal amount,
+        string paymentMethod,
+        DateTime? paidAt,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        var path = "Order/UpdateOrderPayment"
+            + $"?number={Uri.EscapeDataString(orderNumber)}"
+            + $"&paymentamount={Uri.EscapeDataString(amount.ToString(System.Globalization.CultureInfo.InvariantCulture))}"
+            + $"&paymentmethod={Uri.EscapeDataString(paymentMethod)}";
+
+        if (paidAt is DateTime paymentDate)
+        {
+            path += $"&paymentdate={Uri.EscapeDataString(paymentDate.ToString("yyyy-MM-dd HH:mm"))}";
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, path);
+        AddHeaders(request);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        using var document = JsonDocument.Parse(rawJson);
+        EnsureZortSuccess(response, document.RootElement, "ZORT UpdateOrderPayment");
+    }
+
+    public async Task UpdateOrderStatusAsync(
+        string orderNumber,
+        int status,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        var path = "Order/UpdateOrderStatus"
+            + $"?number={Uri.EscapeDataString(orderNumber)}"
+            + $"&status={status}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, path);
+        AddHeaders(request);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        using var document = JsonDocument.Parse(rawJson);
+        EnsureZortSuccess(response, document.RootElement, "ZORT UpdateOrderStatus");
+    }
+
+    public async Task<ZortGetWebhookResponse> GetWebhookAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "Webhook/GetWebhook");
+        AddHeaders(request);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        using var doc = JsonDocument.Parse(rawJson);
+        var root = doc.RootElement;
+        EnsureZortSuccess(response, root, "ZORT GetWebhook");
+        var dataEl = root.TryGetProperty("data", out var d) ? d : root;
+
+        return JsonSerializer.Deserialize<ZortGetWebhookResponse>(dataEl.GetRawText(), JsonOptions)
+            ?? new ZortGetWebhookResponse();
+    }
+
+    public async Task RegisterWebhookAsync(string updateOrderUrl, string key1, string? key2 = null, string? key3 = null, CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        var body = new ZortRegisterWebhookRequest(
+            updateOrderUrl,
+            key1, key2, key3);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "Webhook/UpdateWebhook")
+        {
+            Content = JsonContent.Create(body, options: JsonOptions)
+        };
+        AddHeaders(request);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        using var document = JsonDocument.Parse(rawJson);
+        EnsureZortSuccess(response, document.RootElement, "ZORT RegisterWebhook");
     }
 
     public async Task VoidOrderAsync(long zortOrderId, CancellationToken cancellationToken = default)
     {
         EnsureConfigured();
-        using var request = new HttpRequestMessage(HttpMethod.Post, "Order/VoidOrder")
-        {
-            Content = JsonContent.Create(new ZortVoidOrderRequest(zortOrderId), options: JsonOptions)
-        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"Order/VoidOrder?id={zortOrderId}");
         AddHeaders(request);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        using var document = JsonDocument.Parse(rawJson);
+        var root = document.RootElement;
+        var resDesc = ReadString(root, "resDesc");
+
+        if (string.Equals(
+                resDesc?.Trim().TrimEnd('.'),
+                "This order is voided",
+                StringComparison.OrdinalIgnoreCase))
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new BadRequestException($"ZORT VoidOrder failed with HTTP {(int)response.StatusCode}: {body}");
+            return;
         }
+
+        EnsureZortSuccess(response, root, "ZORT VoidOrder");
     }
 
     private static ZortGetOrdersResponse ParseResponse(string rawJson)
@@ -249,6 +335,22 @@ public sealed class ZortOrderClient : IZortOrderClient
     private static string? ReadString(JsonElement root, string name)
     {
         return root.TryGetProperty(name, out var element) ? element.ToString() : null;
+    }
+
+    private static void EnsureZortSuccess(HttpResponseMessage response, JsonElement root, string operation)
+    {
+        var resDesc = ReadString(root, "resDesc");
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new BadRequestException(resDesc ?? $"{operation} failed ({(int)response.StatusCode}).");
+        }
+
+        var resCode = ReadString(root, "resCode");
+        if (!string.IsNullOrWhiteSpace(resCode) && resCode != "0000" && resCode != "200")
+        {
+            throw new BadRequestException(resDesc ?? $"{operation} rejected (resCode: {resCode}).");
+        }
     }
 
     private void EnsureConfigured()

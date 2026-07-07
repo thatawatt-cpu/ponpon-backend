@@ -7,4 +7,4 @@ public sealed record CreateFlashSaleRequest(
     string[] Slots,
     IReadOnlyList<FlashSaleProductRequest> Products);
 
-public sealed record FlashSaleProductRequest(Guid ProductId, decimal SalePrice);
+public sealed record FlashSaleProductRequest(Guid ProductId, decimal SalePrice, int? QuantityLimit);

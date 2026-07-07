@@ -27,6 +27,10 @@ public sealed class OrderItem : Entity
         BundleCode = snapshot.BundleCode;
         BundleName = snapshot.BundleName;
         RawZortJson = snapshot.RawZortJson;
+        ProductId = snapshot.ProductId;
+        VariantId = snapshot.VariantId;
+        ImageUrl = snapshot.ImageUrl;
+        OptionsJson = snapshot.OptionsJson;
     }
 
     public Guid OrderId { get; private set; }
@@ -44,6 +48,10 @@ public sealed class OrderItem : Entity
     public string? BundleCode { get; private set; }
     public string? BundleName { get; private set; }
     public string RawZortJson { get; private set; } = "{}";
+    public Guid? ProductId { get; private set; }
+    public Guid? VariantId { get; private set; }
+    public string? ImageUrl { get; private set; }
+    public string? OptionsJson { get; private set; }
 
     internal static OrderItem FromSnapshot(Guid orderId, OrderItemSnapshot snapshot) => new(orderId, snapshot);
 }
@@ -62,4 +70,8 @@ public sealed record OrderItemSnapshot(
     long? BundleId,
     string? BundleCode,
     string? BundleName,
-    string RawZortJson);
+    string RawZortJson,
+    Guid? ProductId = null,
+    Guid? VariantId = null,
+    string? ImageUrl = null,
+    string? OptionsJson = null);

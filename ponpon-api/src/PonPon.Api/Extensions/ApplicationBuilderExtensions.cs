@@ -9,6 +9,7 @@ public static class ApplicationBuilderExtensions
         app.UseMiddleware<CorrelationIdMiddleware>();
         app.UseMiddleware<RequestLoggingMiddleware>();
         app.UseMiddleware<ExceptionHandlingMiddleware>();
+        app.UseCors(CorsExtensions.PolicyName);
         app.UseAuthentication();
         app.UseAuthorization();
         return app;

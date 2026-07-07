@@ -19,6 +19,8 @@ public sealed class UpdateFlashSaleHandler
 
     public async Task HandleAsync(UpdateFlashSaleCommand command, CancellationToken cancellationToken = default)
     {
+        FlashSaleValidator.Validate(
+            command.Name, command.StartDate, command.EndDate, command.Slots, command.Products);
         var flashSale = await _flashSales.GetByIdAsync(command.Id, cancellationToken)
             ?? throw new NotFoundException("Flash sale was not found.");
 

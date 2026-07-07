@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Catalog.Application.Features.Products.GetProductById;
 using PonPon.Modules.Catalog.Application.Features.Products.GetProducts;
 using PonPon.Modules.Catalog.Application.Features.Products.SyncProductsFromZort;
@@ -9,6 +10,8 @@ using PonPon.Modules.Catalog.Application.Features.Products.UpdateProductImages;
 using PonPon.Modules.Catalog.Application.Features.Products.UpdateProductPonPonSettings;
 using PonPon.Modules.Catalog.Application.Features.Products.UpdateProductVisibility;
 using PonPon.Modules.Catalog.Domain.Products;
+using PonPon.Modules.Catalog.Domain.SyncRuns;
+using PonPon.Shared.Application.Abstractions;
 
 namespace PonPon.Modules.Catalog.Controllers;
 
@@ -18,9 +21,38 @@ namespace PonPon.Modules.Catalog.Controllers;
 public sealed class AdminProductsController : ControllerBase
 {
     [HttpPost("sync-zort")]
-    public async Task<ActionResult<SyncProductsFromZortResponse>> SyncZort([FromBody] SyncProductsFromZortRequest request, [FromServices] SyncProductsFromZortHandler handler, CancellationToken cancellationToken)
+    public async Task<ActionResult<SyncQueuedResponse>> SyncZort(
+        [FromBody] SyncProductsFromZortRequest request,
+        [FromServices] IProductSyncRunRepository syncRuns,
+        [FromServices] ICatalogUnitOfWork unitOfWork,
+        [FromServices] IPersistentBackgroundJobClient backgroundJobs,
+        [FromServices] IDateTimeProvider clock,
+        CancellationToken cancellationToken)
     {
-        return Ok(await handler.HandleAsync(new SyncProductsFromZortCommand(request.PageStart, request.PageLimit, request.MaxPages, request.DeactivateMissingProducts), cancellationToken));
+        var syncRun = ProductSyncRun.Queue(clock.UtcNow);
+        await syncRuns.AddAsync(syncRun, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            var backgroundJobId = backgroundJobs.Enqueue<ProductSyncBackgroundJob>(job =>
+                job.ExecuteAsync(
+                    syncRun.Id,
+                    request.PageStart,
+                    request.PageLimit,
+                    request.MaxPages,
+                    request.DeactivateMissingProducts));
+
+            syncRun.AttachBackgroundJob(backgroundJobId);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Accepted(new SyncQueuedResponse(syncRun.Id, backgroundJobId, syncRun.Status));
+        }
+        catch (Exception ex)
+        {
+            syncRun.MarkFailed(ex.Message, clock.UtcNow);
+            await unitOfWork.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
     }
 
     [HttpGet]
@@ -71,7 +103,10 @@ public sealed class AdminProductsController : ControllerBase
             request.RichDescription,
             request.IsFeatured,
             request.IsBestSeller,
-            request.IsOnHomepage), cancellationToken);
+            request.IsOnHomepage,
+            request.Options?.Select(o => new ProductVariantOptionCommand(o.Name, o.Value)).ToArray()), cancellationToken);
         return NoContent();
     }
 }
+
+public sealed record SyncQueuedResponse(Guid SyncRunId, string BackgroundJobId, string Status);

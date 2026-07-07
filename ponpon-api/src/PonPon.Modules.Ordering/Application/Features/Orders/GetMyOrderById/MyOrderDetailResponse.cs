@@ -21,11 +21,20 @@ public sealed record MyOrderDetailResponse(
     string? Description,
     bool IsCod,
     string? Currency,
+    string? CancellationReason,
+    DateTime? CanceledAtUtc,
+    string? OmiseRefundStatus,
+    decimal RefundedAmount,
+    string? PricingSnapshotJson,
     IReadOnlyCollection<MyOrderItemResponse> Items,
     IReadOnlyCollection<MyOrderPaymentResponse> Payments);
 
+public sealed record MyOrderItemOptionResponse(string Name, string Value);
+
 public sealed record MyOrderItemResponse(
     Guid Id,
+    Guid? ProductId,
+    Guid? VariantId,
     string Sku,
     string Name,
     decimal Quantity,
@@ -33,7 +42,9 @@ public sealed record MyOrderItemResponse(
     decimal PricePerUnit,
     string? Discount,
     decimal DiscountAmount,
-    decimal TotalPrice);
+    decimal TotalPrice,
+    string? ImageUrl,
+    IReadOnlyCollection<MyOrderItemOptionResponse> Options);
 
 public sealed record MyOrderPaymentResponse(
     Guid Id,

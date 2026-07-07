@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PonPon.Modules.Identity.Application.Abstractions;
 using PonPon.Modules.Identity.Application.Features.AdminLogin;
+using PonPon.Modules.Identity.Application.Features.CustomerAddresses;
 using PonPon.Modules.Identity.Application.Features.GetMe;
 using PonPon.Modules.Identity.Application.Features.LineLogin;
 using PonPon.Modules.Identity.Application.Features.Logout;
@@ -32,6 +33,7 @@ public static class IdentityModule
 
         services.AddScoped<IUnitOfWork, IdentityUnitOfWork>();
         services.AddScoped<ICustomerRepository, CustomerRepository>();
+        services.AddScoped<ICustomerAddressRepository, CustomerAddressRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
@@ -46,6 +48,11 @@ public static class IdentityModule
         services.AddScoped<RefreshTokenHandler>();
         services.AddScoped<GetMeHandler>();
         services.AddScoped<LogoutHandler>();
+        services.AddScoped<GetMyCustomerAddressesHandler>();
+        services.AddScoped<CreateCustomerAddressHandler>();
+        services.AddScoped<UpdateCustomerAddressHandler>();
+        services.AddScoped<SetDefaultCustomerAddressHandler>();
+        services.AddScoped<DeleteCustomerAddressHandler>();
         services.AddScoped<IdentityDataSeeder>();
 
         return services;

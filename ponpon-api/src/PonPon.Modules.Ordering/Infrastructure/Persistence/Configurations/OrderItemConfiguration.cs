@@ -22,7 +22,11 @@ public sealed class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
         builder.Property(x => x.DiscountAmount).HasPrecision(18, 2);
         builder.Property(x => x.TotalPrice).HasPrecision(18, 2);
         builder.Property(x => x.RawZortJson).HasColumnType("jsonb").IsRequired();
+        builder.Property(x => x.ImageUrl).HasMaxLength(2048);
+        builder.Property(x => x.OptionsJson).HasColumnType("jsonb");
         builder.HasIndex(x => x.OrderId);
         builder.HasIndex(x => x.ZortProductId);
+        builder.HasIndex(x => x.ProductId);
+        builder.HasIndex(x => x.VariantId);
     }
 }

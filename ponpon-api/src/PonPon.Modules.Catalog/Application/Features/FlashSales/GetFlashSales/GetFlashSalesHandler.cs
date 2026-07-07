@@ -36,6 +36,8 @@ public sealed class GetFlashSalesHandler
             return new FlashSaleProductResponse(
                 p.ProductId,
                 p.SalePrice,
+                p.QuantityLimit,
+                p.ReservedQuantity,
                 product?.Name ?? string.Empty,
                 product?.OriginalPrice,
                 product?.ImageUrl);

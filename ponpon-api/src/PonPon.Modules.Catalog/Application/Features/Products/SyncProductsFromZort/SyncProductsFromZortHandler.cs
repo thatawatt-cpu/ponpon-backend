@@ -1,6 +1,7 @@
 ﻿using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Catalog.Domain.Categories;
 using PonPon.Modules.Catalog.Domain.Products;
+using PonPon.Modules.Catalog.Domain.SyncRuns;
 using PonPon.Modules.Catalog.Infrastructure.ExternalServices.Zort;
 using PonPon.Shared.Application.Abstractions;
 
@@ -12,18 +13,65 @@ public sealed class SyncProductsFromZortHandler
 {
     private readonly IZortProductClient _zortClient;
     private readonly IProductRepository _products;
+    private readonly IProductSyncRunRepository _syncRuns;
     private readonly ICatalogUnitOfWork _unitOfWork;
     private readonly IDateTimeProvider _clock;
 
-    public SyncProductsFromZortHandler(IZortProductClient zortClient, IProductRepository products, ICatalogUnitOfWork unitOfWork, IDateTimeProvider clock)
+    public SyncProductsFromZortHandler(
+        IZortProductClient zortClient,
+        IProductRepository products,
+        IProductSyncRunRepository syncRuns,
+        ICatalogUnitOfWork unitOfWork,
+        IDateTimeProvider clock)
     {
         _zortClient = zortClient;
         _products = products;
+        _syncRuns = syncRuns;
         _unitOfWork = unitOfWork;
         _clock = clock;
     }
 
     public async Task<SyncProductsFromZortResponse> HandleAsync(SyncProductsFromZortCommand command, CancellationToken cancellationToken = default)
+    {
+        var syncRun = command.SyncRunId.HasValue
+            ? await _syncRuns.GetByIdAsync(command.SyncRunId.Value, cancellationToken)
+            : null;
+
+        if (syncRun is null)
+        {
+            syncRun = ProductSyncRun.Queue(_clock.UtcNow);
+            await _syncRuns.AddAsync(syncRun, cancellationToken);
+        }
+
+        syncRun.MarkRunning(_clock.UtcNow);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            var result = await ExecuteAsync(command, cancellationToken);
+            syncRun.MarkCompleted(
+                result.TotalFetched,
+                result.Created,
+                result.Updated,
+                result.Unchanged,
+                result.Deactivated,
+                result.Failed,
+                result.Errors,
+                _clock.UtcNow);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            syncRun.MarkFailed(ex.Message, _clock.UtcNow);
+            await _unitOfWork.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    private async Task<SyncProductsFromZortResponse> ExecuteAsync(
+        SyncProductsFromZortCommand command,
+        CancellationToken cancellationToken)
     {
         await SyncCategoriesFromZortAsync(cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);

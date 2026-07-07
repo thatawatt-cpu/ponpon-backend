@@ -18,8 +18,14 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.CustomerEmail).HasMaxLength(320);
         builder.Property(x => x.CustomerPhone).HasMaxLength(128);
         builder.Property(x => x.CustomerAddress).HasMaxLength(4096);
+        builder.Property(x => x.CancellationReason).HasMaxLength(2000);
+        builder.Property(x => x.CanceledBy).HasMaxLength(64);
         builder.Property(x => x.Status).HasMaxLength(64).IsRequired();
         builder.Property(x => x.PaymentStatus).HasMaxLength(64).IsRequired();
+        builder.Property(x => x.OmiseChargeId).HasMaxLength(128);
+        builder.Property(x => x.CheckoutPaymentMethod).HasMaxLength(128);
+        builder.Property(x => x.OmiseRefundId).HasMaxLength(128);
+        builder.Property(x => x.OmiseRefundStatus).HasMaxLength(64);
         builder.Property(x => x.ShippingChannel).HasMaxLength(128);
         builder.Property(x => x.ShippingName).HasMaxLength(512);
         builder.Property(x => x.ShippingAddress).HasMaxLength(4096);
@@ -36,15 +42,21 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.VatAmount).HasPrecision(18, 2);
         builder.Property(x => x.ShippingAmount).HasPrecision(18, 2);
         builder.Property(x => x.PaymentAmount).HasPrecision(18, 2);
+        builder.Property(x => x.RefundedAmount).HasPrecision(18, 2);
         builder.Property(x => x.DiscountAmount).HasPrecision(18, 2);
         builder.Property(x => x.TagsJson).HasColumnType("jsonb");
         builder.Property(x => x.RawZortJson).HasColumnType("jsonb").IsRequired();
+        builder.Property(x => x.PricingSnapshotJson).HasColumnType("jsonb");
         builder.HasIndex(x => x.ZortOrderId).IsUnique();
         builder.HasIndex(x => x.CustomerId);
         builder.HasIndex(x => x.Number);
         builder.HasIndex(x => new { x.SalesChannel, x.OrderDate });
         builder.HasIndex(x => x.IntegrationCustomerId);
         builder.HasIndex(x => new { x.Status, x.PaymentStatus });
+        builder.HasIndex(x => x.PaymentExpiresAt).HasFilter("\"PaymentExpiresAt\" IS NOT NULL");
+        builder.HasIndex(x => x.OmiseChargeId)
+            .IsUnique()
+            .HasFilter("\"OmiseChargeId\" IS NOT NULL");
         builder.HasMany(x => x.Items).WithOne().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(x => x.Payments).WithOne().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
         builder.Navigation(x => x.Items).UsePropertyAccessMode(PropertyAccessMode.Field);

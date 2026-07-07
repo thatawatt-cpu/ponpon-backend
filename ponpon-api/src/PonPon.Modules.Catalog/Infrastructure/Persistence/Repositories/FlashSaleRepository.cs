@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Catalog.Domain.FlashSales;
+using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Repositories;
 
@@ -41,6 +42,10 @@ public sealed class FlashSaleRepository : IFlashSaleRepository
 
     public async Task DeleteProductsAsync(Guid flashSaleId, CancellationToken cancellationToken = default)
     {
+        if (await _dbContext.FlashSaleReservations.AnyAsync(
+                x => x.FlashSaleId == flashSaleId && !x.IsReleased, cancellationToken))
+            throw new BadRequestException("Flash sale with active order reservations cannot be updated.");
+
         await _dbContext.FlashSaleProducts.Where(x => x.FlashSaleId == flashSaleId).ExecuteDeleteAsync(cancellationToken);
 
         var tracked = _dbContext.ChangeTracker.Entries<FlashSaleProduct>()
@@ -53,6 +58,82 @@ public sealed class FlashSaleRepository : IFlashSaleRepository
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        if (await _dbContext.FlashSaleReservations.AnyAsync(
+                x => x.FlashSaleId == id && !x.IsReleased, cancellationToken))
+            throw new BadRequestException("Flash sale with active order reservations cannot be deleted.");
         await _dbContext.FlashSales.Where(x => x.Id == id).ExecuteDeleteAsync(cancellationToken);
+    }
+
+    public async Task<bool> TryReserveQuotaAsync(
+        Guid orderId,
+        Guid flashSaleId,
+        IReadOnlyDictionary<Guid, int> productQuantities,
+        DateTime nowUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (productQuantities.Count == 0) return true;
+        await using var tx = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var lockKey = BitConverter.ToInt64(flashSaleId.ToByteArray(), 0);
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock({lockKey})", cancellationToken);
+
+        if (await _dbContext.FlashSaleReservations.AnyAsync(x => x.OrderId == orderId && !x.IsReleased, cancellationToken))
+        {
+            await tx.CommitAsync(cancellationToken);
+            return true;
+        }
+
+        var productIds = productQuantities.Keys.ToArray();
+        var entries = await _dbContext.FlashSaleProducts
+            .Where(x => x.FlashSaleId == flashSaleId && productIds.Contains(x.ProductId))
+            .ToArrayAsync(cancellationToken);
+        if (entries.Length != productIds.Length
+            || entries.Any(x => x.QuantityLimit.HasValue
+                && x.ReservedQuantity + productQuantities[x.ProductId] > x.QuantityLimit.Value))
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        foreach (var entry in entries)
+        {
+            var quantity = productQuantities[entry.ProductId];
+            _dbContext.Entry(entry).Property(x => x.ReservedQuantity).CurrentValue += quantity;
+            await _dbContext.FlashSaleReservations.AddAsync(
+                new FlashSaleReservation(orderId, flashSaleId, entry.ProductId, quantity, nowUtc),
+                cancellationToken);
+        }
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task ReleaseQuotaByOrderAsync(
+        Guid orderId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await using var tx = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var reservations = await _dbContext.FlashSaleReservations
+            .Where(x => x.OrderId == orderId && !x.IsReleased)
+            .ToArrayAsync(cancellationToken);
+        foreach (var flashSaleId in reservations.Select(x => x.FlashSaleId).Distinct().OrderBy(x => x))
+        {
+            var lockKey = BitConverter.ToInt64(flashSaleId.ToByteArray(), 0);
+            await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock({lockKey})", cancellationToken);
+        }
+        foreach (var reservation in reservations)
+        {
+            var entry = await _dbContext.FlashSaleProducts.FirstOrDefaultAsync(
+                x => x.FlashSaleId == reservation.FlashSaleId && x.ProductId == reservation.ProductId,
+                cancellationToken);
+            if (entry is not null)
+                _dbContext.Entry(entry).Property(x => x.ReservedQuantity).CurrentValue =
+                    Math.Max(0, entry.ReservedQuantity - reservation.Quantity);
+            reservation.Release(nowUtc);
+        }
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
     }
 }

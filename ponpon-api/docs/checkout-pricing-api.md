@@ -1,0 +1,178 @@
+# Checkout pricing integration
+
+Call `POST /api/orders/pricing-preview` whenever cart items, shipping address/channel, or coupon code changes. Use the returned amounts as the checkout display only; `POST /api/orders` recalculates and atomically reserves coupon, flash-sale quota, and stock.
+
+```json
+{
+  "customerEmail": "buyer@example.com",
+  "shippingName": "Buyer",
+  "shippingPhone": "0812345678",
+  "shippingAddress": "99 Road district state province 10110",
+  "shippingChannel": "standard",
+  "paymentMethod": "promptpay",
+  "couponCode": "WELCOME10",
+  "items": [
+    { "productId": "00000000-0000-0000-0000-000000000000", "variantId": null, "quantity": 1 }
+  ]
+}
+```
+
+Render `lines`, `itemSubtotal`, `shippingAmount`, `couponDiscountAmount`, `vatAmount`, `grandTotal`, and `adjustments`. Treat HTTP 400 as an invalid coupon, unavailable quota/stock, unsupported shipping address, or invalid request and show the API error message.
+
+Admin endpoints:
+
+- Coupon CRUD: `/api/admin/coupons`
+- Coupon usage history: `GET /api/admin/coupons/{id}/usages`
+- Flash-sale quota: `quantityLimit` and `reservedQuantity` on `/api/admin/flash-sales`
+- Immutable order calculation: `GET /api/admin/orders/{id}/pricing-snapshot`
+
+Coupon product scope:
+
+- `scopes: []` or omitted = coupon applies to the whole order.
+- `type: "product"` requires `productId`.
+- `type: "variant"` requires `variantId` or `sku`.
+- `type: "sku"` requires `sku`.
+- `type: "category"` requires `categoryName`; category scope matches both product category and sub-category.
+
+```json
+{
+  "code": "TEA10",
+  "type": "percentage",
+  "value": 10,
+  "minimumSubtotal": 0,
+  "maximumDiscount": null,
+  "startsAtUtc": null,
+  "endsAtUtc": null,
+  "canCombineWithFlashSale": true,
+  "maximumTotalUses": 100,
+  "maximumUsesPerCustomer": 1,
+  "isActive": true,
+  "scopes": [
+    { "type": "product", "productId": "00000000-0000-0000-0000-000000000000" },
+    { "type": "sku", "sku": "TEA-RED" },
+    { "type": "category", "categoryName": "Tea" }
+  ]
+}
+```
+
+When scopes are present, the coupon discount is calculated from only the matching cart lines. If no line matches, pricing preview and checkout return HTTP 400.
+
+Coupon customer scope:
+
+- `customerScopes: []` or omitted = coupon applies to all customers.
+- `type: "new_customer"` = customer has no previous paid, non-voided orders.
+- `type: "first_order"` = same eligibility as `new_customer` at checkout time.
+- `type: "existing_customer"` = customer has at least one previous paid, non-voided order.
+- `type: "customer"` requires `customerId`; this is for customer-specific/private coupons.
+
+```json
+{
+  "code": "VIP100",
+  "type": "fixed",
+  "value": 100,
+  "minimumSubtotal": 500,
+  "maximumDiscount": null,
+  "startsAtUtc": null,
+  "endsAtUtc": null,
+  "canCombineWithFlashSale": true,
+  "maximumTotalUses": 100,
+  "maximumUsesPerCustomer": 1,
+  "isActive": true,
+  "scopes": [],
+  "customerScopes": [
+    { "type": "existing_customer" },
+    { "type": "customer", "customerId": "00000000-0000-0000-0000-000000000000" }
+  ]
+}
+```
+
+If multiple customer scopes are supplied, a customer can use the coupon when any one scope matches.
+
+Coupon checkout conditions:
+
+- `conditions: []` or omitted = no channel, payment, or shipping restriction.
+- `sales_channel` values use the order sales channel; customer checkout currently sends `LineLiff`.
+- `payment_method` values: `promptpay`, `card`, `mobile_banking_bbl`, `mobile_banking_kbank`,
+  `mobile_banking_scb`, `mobile_banking_ktb`, or `mobile_banking_bay`.
+- `shipping_channel` values use the shipping courier/service code sent in `shippingChannel`.
+- Values within the same condition type are OR. Different condition types are AND.
+
+```json
+{
+  "conditions": [
+    { "type": "sales_channel", "value": "LineLiff" },
+    { "type": "payment_method", "value": "promptpay" },
+    { "type": "shipping_channel", "value": "flash" },
+    { "type": "shipping_channel", "value": "kerry" }
+  ]
+}
+```
+
+Send the selected `paymentMethod` in both `POST /api/orders/pricing-preview` and
+`POST /api/orders`. The order stores that choice, and payment creation rejects a different method.
+
+Bulk generate coupons:
+
+`POST /api/admin/coupons/bulk-generate`
+
+```json
+{
+  "prefix": "VIP",
+  "count": 100,
+  "codeLength": 8,
+  "campaignId": "00000000-0000-0000-0000-000000000000",
+  "template": {
+    "type": "fixed",
+    "value": 100,
+    "minimumSubtotal": 500,
+    "maximumDiscount": null,
+    "startsAtUtc": null,
+    "endsAtUtc": null,
+    "canCombineWithFlashSale": true,
+    "maximumTotalUses": 1,
+    "maximumUsesPerCustomer": 1,
+    "isActive": true,
+    "scopes": [],
+    "customerScopes": [],
+    "conditions": []
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "batchId": "00000000-0000-0000-0000-000000000000",
+  "campaignId": "00000000-0000-0000-0000-000000000000",
+  "createdCount": 100,
+  "codes": ["VIP-8K2P9Q4M"]
+}
+```
+
+Audit logs:
+
+- `GET /api/admin/coupons/{id}/audit-logs`
+- Logged actions: `created`, `updated`, `deleted`, `deactivated`, `bulk_generated`.
+- Each log includes `actorUserId`, `actorUserType`, `beforeJson`, `afterJson`, and optional `batchId`.
+
+Coupon campaigns:
+
+- CRUD: `/api/admin/coupon-campaigns`
+- Filter coupons: `GET /api/admin/coupons?campaignId={campaignId}`
+- A campaign can contain multiple bulk-generate batches. `campaignId` groups the campaign,
+  while `batchId` identifies each generation run.
+- Campaign responses include `generatedCoupons`, `redeemedCoupons`, `remainingCoupons`,
+  `activeUsageCount`, and `totalDiscountAmount`.
+- Deleting a campaign that already has coupons deactivates it and preserves reporting history.
+- An inactive, not-yet-started, or expired campaign makes its coupons unusable.
+
+```json
+{
+  "name": "8.8 Campaign",
+  "description": "Coupons for the 8.8 sale",
+  "startsAtUtc": "2026-08-07T17:00:00Z",
+  "endsAtUtc": "2026-08-08T16:59:59Z",
+  "isActive": true
+}
+```

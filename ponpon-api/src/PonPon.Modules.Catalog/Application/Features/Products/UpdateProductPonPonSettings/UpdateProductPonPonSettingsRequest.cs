@@ -1,5 +1,7 @@
 namespace PonPon.Modules.Catalog.Application.Features.Products.UpdateProductPonPonSettings;
 
+public sealed record ProductVariantOptionRequest(string Name, string Value);
+
 public sealed record UpdateProductPonPonSettingsRequest(
     string? Slug,
     decimal? OriginalPrice,
@@ -8,4 +10,5 @@ public sealed record UpdateProductPonPonSettingsRequest(
     string? RichDescription,
     bool IsFeatured,
     bool IsBestSeller,
-    bool IsOnHomepage);
+    bool IsOnHomepage,
+    IReadOnlyCollection<ProductVariantOptionRequest>? Options);

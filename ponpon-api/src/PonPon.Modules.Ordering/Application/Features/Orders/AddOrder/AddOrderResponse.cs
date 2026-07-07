@@ -6,4 +6,7 @@ public sealed record AddOrderResponse(
     string Number,
     string Status,
     string PaymentStatus,
-    decimal Amount);
+    decimal Amount,
+    decimal ShippingAmount,
+    decimal DiscountAmount,
+    DateTime? PaymentExpiresAt);

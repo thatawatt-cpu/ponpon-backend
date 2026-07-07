@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using PonPon.Modules.Catalog.Application.Features.FlashSales.CreateFlashSale;
 using PonPon.Modules.Catalog.Application.Features.FlashSales.DeleteFlashSale;
 using PonPon.Modules.Catalog.Application.Features.FlashSales.GetFlashSaleById;
@@ -8,6 +9,7 @@ using PonPon.Modules.Catalog.Application.Features.FlashSales.UpdateFlashSale;
 namespace PonPon.Modules.Catalog.Controllers;
 
 [ApiController]
+[Authorize(Roles = "Admin")]
 public sealed class AdminFlashSalesController : ControllerBase
 {
     [HttpGet("api/admin/flash-sales")]
@@ -30,7 +32,7 @@ public sealed class AdminFlashSalesController : ControllerBase
             request.StartDate,
             request.EndDate,
             request.Slots,
-            request.Products.Select(p => (p.ProductId, p.SalePrice)).ToArray());
+            request.Products.Select(p => (p.ProductId, p.SalePrice, p.QuantityLimit)).ToArray());
 
         var id = await handler.HandleAsync(command, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id }, id);
@@ -45,7 +47,7 @@ public sealed class AdminFlashSalesController : ControllerBase
             request.StartDate,
             request.EndDate,
             request.Slots,
-            request.Products.Select(p => (p.ProductId, p.SalePrice)).ToArray());
+            request.Products.Select(p => (p.ProductId, p.SalePrice, p.QuantityLimit)).ToArray());
 
         await handler.HandleAsync(command, cancellationToken);
         return NoContent();

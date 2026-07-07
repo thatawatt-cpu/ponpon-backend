@@ -29,4 +29,12 @@ public interface IProductRepository
     Task AddRangeAsync(IEnumerable<Product> products, CancellationToken cancellationToken = default);
     Task AddCategoryAsync(Category category, CancellationToken cancellationToken = default);
     Task AddCategoriesAsync(IEnumerable<Category> categories, CancellationToken cancellationToken = default);
+    Task<bool> TryReserveVariantsStockAsync(IReadOnlyDictionary<Guid, int> variantQuantities, CancellationToken cancellationToken = default);
+    Task ReleaseVariantsStockAsync(IReadOnlyDictionary<Guid, int> variantQuantities, CancellationToken cancellationToken = default);
+    Task<bool> TryReleaseOrderVariantsStockAsync(
+        Guid orderId,
+        IReadOnlyDictionary<Guid, int> variantQuantities,
+        DateTime releasedAtUtc,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyDictionary<string, (string? ImageUrl, string? OptionsJson)>> GetVariantImageAndOptionsBySkusAsync(IReadOnlySet<string> skus, CancellationToken cancellationToken = default);
 }

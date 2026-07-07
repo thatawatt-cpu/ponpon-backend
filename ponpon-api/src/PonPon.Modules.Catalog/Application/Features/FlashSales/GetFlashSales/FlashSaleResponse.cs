@@ -12,6 +12,8 @@ public sealed record FlashSaleResponse(
 public sealed record FlashSaleProductResponse(
     Guid ProductId,
     decimal SalePrice,
+    int? QuantityLimit,
+    int ReservedQuantity,
     string ProductName,
     decimal? OriginalPrice,
     string? ImageUrl);

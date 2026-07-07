@@ -12,6 +12,7 @@ public sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         
         builder.Ignore(x => x.DomainEvents);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+        builder.Navigation(x => x.Addresses).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.OwnsOne(x => x.LineProfile, profile =>
         {
             profile.Property(x => x.LineUserId).HasColumnName("line_user_id").HasMaxLength(128).IsRequired();

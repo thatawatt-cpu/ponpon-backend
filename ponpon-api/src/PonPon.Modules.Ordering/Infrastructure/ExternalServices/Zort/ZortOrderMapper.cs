@@ -1,11 +1,17 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using PonPon.Modules.Ordering.Domain.Orders;
 
 namespace PonPon.Modules.Ordering.Infrastructure.ExternalServices.Zort;
 
 public static class ZortOrderMapper
 {
+    private static readonly JsonSerializerOptions RawJsonOptions = new()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault
+    };
+
     public static OrderSnapshot ToSnapshot(ZortOrderDto dto)
     {
         var zortOrderId = ReadLong(dto.Id)
@@ -51,7 +57,7 @@ public static class ZortOrderMapper
             ReadDateTime(dto.UpdateDateTime, dto.UpdateDateTimeString),
             items,
             payments,
-            JsonSerializer.Serialize(dto));
+            JsonSerializer.Serialize(dto, RawJsonOptions));
     }
 
     private static OrderItemSnapshot ToItemSnapshot(ZortOrderItemDto dto)
@@ -70,7 +76,7 @@ public static class ZortOrderMapper
             ReadLong(dto.BundleId),
             EmptyToNull(dto.BundleCode),
             EmptyToNull(dto.BundleName),
-            JsonSerializer.Serialize(dto));
+            JsonSerializer.Serialize(dto, RawJsonOptions));
     }
 
     private static OrderPaymentSnapshot ToPaymentSnapshot(ZortOrderPaymentDto dto)
@@ -80,7 +86,7 @@ public static class ZortOrderMapper
             EmptyToNull(dto.Name) ?? "Unknown",
             ReadDecimal(dto.Amount) ?? 0,
             ReadDateTime(dto.PaymentDateTime, dto.PaymentDateTimeString),
-            JsonSerializer.Serialize(dto));
+            JsonSerializer.Serialize(dto, RawJsonOptions));
     }
 
     private static string? SerializeElement(JsonElement element)

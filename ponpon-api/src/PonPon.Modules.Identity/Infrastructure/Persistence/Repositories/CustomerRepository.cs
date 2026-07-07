@@ -10,7 +10,10 @@ public sealed class CustomerRepository : ICustomerRepository
 
     public CustomerRepository(IdentityDbContext dbContext) => _dbContext = dbContext;
 
-    public Task<Customer?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => _dbContext.Customers.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    public Task<Customer?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        _dbContext.Customers
+            .Include(x => x.Addresses)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
     public Task<Customer?> GetByLineUserIdAsync(string lineUserId, CancellationToken cancellationToken = default) => _dbContext.Customers.FirstOrDefaultAsync(x => x.LineProfile.LineUserId == lineUserId, cancellationToken);
 

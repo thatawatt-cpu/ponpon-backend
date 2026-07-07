@@ -33,9 +33,16 @@ public sealed record OrderDetailResponse(
     string? WarehouseCode,
     bool IsCod,
     string? Currency,
+    string? CancellationReason,
+    string? CanceledBy,
+    DateTime? CanceledAtUtc,
+    string? OmiseRefundId,
+    string? OmiseRefundStatus,
+    decimal RefundedAmount,
     DateTime? ZortCreatedAt,
     DateTime? ZortUpdatedAt,
     DateTime LastSyncedAt,
+    string? PricingSnapshotJson,
     IReadOnlyCollection<OrderItemResponse> Items,
     IReadOnlyCollection<OrderPaymentResponse> Payments);
 
@@ -53,7 +60,8 @@ public sealed record OrderItemResponse(
     int ProductType,
     long? BundleId,
     string? BundleCode,
-    string? BundleName);
+    string? BundleName,
+    string? ImageUrl);
 
 public sealed record OrderPaymentResponse(
     Guid Id,

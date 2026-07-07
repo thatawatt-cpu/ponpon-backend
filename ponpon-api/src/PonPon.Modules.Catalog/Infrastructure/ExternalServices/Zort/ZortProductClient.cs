@@ -18,6 +18,28 @@ public sealed class ZortProductClient : IZortProductClient
         _options = options.Value;
     }
 
+    public async Task<ZortGetWarehousesResponse> GetWarehousesAsync(int page = 1, int limit = 500, CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"Warehouse/GetWarehouses?page={page}&limit={limit}");
+        AddZortHeaders(request);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+        EnsureZortSuccess(response, rawJson, "ZORT GetWarehouses");
+
+        using var doc = JsonDocument.Parse(rawJson);
+        var root = doc.RootElement;
+        var list = root.TryGetProperty("list", out var listEl) && listEl.ValueKind == JsonValueKind.Array
+            ? JsonSerializer.Deserialize<IReadOnlyCollection<ZortWarehouseDto>>(listEl.GetRawText(), JsonOptions) ?? []
+            : [];
+        var count = root.TryGetProperty("count", out var countEl) && countEl.TryGetInt32(out var c) ? c : (int?)null;
+        var resCode = root.TryGetProperty("resCode", out var rc) ? rc.GetString() : null;
+        var resDesc = root.TryGetProperty("resDesc", out var rd) ? rd.GetString() : null;
+
+        return new ZortGetWarehousesResponse(list, count, resCode, resDesc);
+    }
+
     public async Task<ZortGetCategoriesResponse> GetCategoriesAsync(CancellationToken cancellationToken = default)
     {
         EnsureConfigured();
@@ -26,10 +48,7 @@ public sealed class ZortProductClient : IZortProductClient
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new BadRequestException($"ZORT GetCategorys failed with HTTP {(int)response.StatusCode}.");
-        }
+        EnsureZortSuccess(response, rawJson, "ZORT GetCategorys");
 
         return ParseGetCategories(rawJson);
     }
@@ -42,12 +61,27 @@ public sealed class ZortProductClient : IZortProductClient
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new BadRequestException($"ZORT GetProducts failed with HTTP {(int)response.StatusCode}.");
-        }
+        EnsureZortSuccess(response, rawJson, "ZORT GetProducts");
 
         return ParseGetProducts(rawJson, page, limit);
+    }
+
+    public async Task<ZortProductDto> GetProductByIdAsync(long zortProductId, CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"Product/GetProductDetail?id={zortProductId}");
+        AddZortHeaders(request);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+        EnsureZortSuccess(response, rawJson, "ZORT GetProductDetail");
+
+        using var doc = JsonDocument.Parse(rawJson);
+        var root = doc.RootElement;
+
+        var productElement = FindProductElement(root);
+        return JsonSerializer.Deserialize<ZortProductDto>(productElement.GetRawText(), JsonOptions)
+            ?? throw new BadRequestException("ZORT GetProductDetail returned empty product.");
     }
 
     public Task<ZortApiResponse> UpdateProductStockListAsync(ZortStockUpdateRequest request, CancellationToken cancellationToken = default)
@@ -69,7 +103,11 @@ public sealed class ZortProductClient : IZortProductClient
         AddZortHeaders(httpRequest);
         using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
-        return new ZortApiResponse(response.IsSuccessStatusCode, TryReadString(rawJson, "resCode"), TryReadString(rawJson, "resDesc"), rawJson);
+        var resCode = TryReadString(rawJson, "resCode");
+        var resDesc = TryReadString(rawJson, "resDesc");
+        var isSuccess = response.IsSuccessStatusCode && IsSuccessfulResCode(resCode);
+
+        return new ZortApiResponse(isSuccess, resCode, resDesc, rawJson);
     }
 
     private void AddZortHeaders(HttpRequestMessage request)
@@ -170,10 +208,34 @@ public sealed class ZortProductClient : IZortProductClient
         return null;
     }
 
+    private static JsonElement FindProductElement(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new BadRequestException("ZORT GetProductDetail returned invalid JSON.");
+
+        if (root.TryGetProperty("id", out _))
+            return root;
+
+        foreach (var name in new[] { "data", "product", "detail" })
+        {
+            if (root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Object)
+                return el;
+        }
+
+        throw new BadRequestException("ZORT GetProductDetail returned empty product.");
+    }
+
     private static string? TryReadString(string rawJson, string name)
     {
-        using var document = JsonDocument.Parse(rawJson);
-        return TryReadString(document.RootElement, name);
+        try
+        {
+            using var document = JsonDocument.Parse(rawJson);
+            return TryReadString(document.RootElement, name);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static string? TryReadString(JsonElement root, string name)
@@ -184,5 +246,26 @@ public sealed class ZortProductClient : IZortProductClient
         }
 
         return null;
+    }
+
+    private static void EnsureZortSuccess(HttpResponseMessage response, string rawJson, string operation)
+    {
+        var resCode = TryReadString(rawJson, "resCode");
+        var resDesc = TryReadString(rawJson, "resDesc");
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new BadRequestException(resDesc ?? $"{operation} failed ({(int)response.StatusCode}).");
+        }
+
+        if (!IsSuccessfulResCode(resCode))
+        {
+            throw new BadRequestException(resDesc ?? $"{operation} rejected (resCode: {resCode}).");
+        }
+    }
+
+    private static bool IsSuccessfulResCode(string? resCode)
+    {
+        return string.IsNullOrWhiteSpace(resCode) || resCode == "0000" || resCode == "200";
     }
 }

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Catalog.Infrastructure.ExternalServices.Supabase;
 using PonPon.Shared.Application.Abstractions;
@@ -26,22 +27,33 @@ public sealed class UpdateProductPonPonSettingsHandler
 
     public async Task HandleAsync(UpdateProductPonPonSettingsCommand command, CancellationToken cancellationToken = default)
     {
-        var product = await _products.GetByIdAsync(command.ProductId, cancellationToken)
-            ?? throw new NotFoundException("Product was not found.");
+        var product = await _products.GetByIdAsync(command.ProductId, cancellationToken);
 
-        var richDescription = await _imageProcessor.ProcessAsync(command.RichDescription, command.ProductId, cancellationToken);
+        if (product is not null)
+        {
+            var richDescription = await _imageProcessor.ProcessAsync(command.RichDescription, command.ProductId, cancellationToken);
+            product.UpdatePonPonSettings(
+                command.Slug,
+                command.OriginalPrice,
+                command.PromotionBadge,
+                command.Highlights,
+                richDescription,
+                command.IsFeatured,
+                command.IsBestSeller,
+                command.IsOnHomepage,
+                _clock.UtcNow);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return;
+        }
 
-        product.UpdatePonPonSettings(
-            command.Slug,
-            command.OriginalPrice,
-            command.PromotionBadge,
-            command.Highlights,
-            richDescription,
-            command.IsFeatured,
-            command.IsBestSeller,
-            command.IsOnHomepage,
-            _clock.UtcNow);
+        var variant = await _products.GetVariantByIdAsync(command.ProductId, cancellationToken)
+            ?? throw new NotFoundException("Product or variant was not found.");
 
+        var optionsJson = command.Options is { Count: > 0 }
+            ? JsonSerializer.Serialize(command.Options)
+            : null;
+
+        variant.UpdatePonPonSettings(optionsJson, _clock.UtcNow);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 }

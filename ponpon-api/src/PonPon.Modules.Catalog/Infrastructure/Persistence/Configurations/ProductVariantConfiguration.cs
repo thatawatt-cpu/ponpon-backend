@@ -21,6 +21,7 @@ public sealed class ProductVariantConfiguration : IEntityTypeConfiguration<Produ
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
         builder.Property(x => x.SellPrice).HasPrecision(18, 2);
         builder.Property(x => x.PurchasePrice).HasPrecision(18, 2);
+        builder.Property(x => x.OptionsJson).HasColumnType("jsonb");
         builder.Property(x => x.RawZortJson).HasColumnType("jsonb");
         builder.HasIndex(x => x.ProductId);
         builder.HasIndex(x => x.Sku).IsUnique();

@@ -1,5 +1,7 @@
 namespace PonPon.Modules.Catalog.Application.Features.Products.UpdateProductPonPonSettings;
 
+public sealed record ProductVariantOptionCommand(string Name, string Value);
+
 public sealed record UpdateProductPonPonSettingsCommand(
     Guid ProductId,
     string? Slug,
@@ -9,4 +11,5 @@ public sealed record UpdateProductPonPonSettingsCommand(
     string? RichDescription,
     bool IsFeatured,
     bool IsBestSeller,
-    bool IsOnHomepage);
+    bool IsOnHomepage,
+    IReadOnlyCollection<ProductVariantOptionCommand>? Options);

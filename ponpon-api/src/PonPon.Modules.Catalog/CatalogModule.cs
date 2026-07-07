@@ -20,12 +20,15 @@ using PonPon.Modules.Catalog.Application.Features.Products.GetProductById;
 using PonPon.Modules.Catalog.Application.Features.Products.GetProductBySlug;
 using PonPon.Modules.Catalog.Application.Features.Products.GetProducts;
 using PonPon.Modules.Catalog.Application.Features.Products.SyncProductsFromZort;
+using PonPon.Modules.Catalog.Application.Features.Products.HandleZortProductWebhook;
 using PonPon.Modules.Catalog.Application.Features.Products.SyncSingleProductFromZort;
 using PonPon.Modules.Catalog.Application.Features.Products.UploadProductImage;
 using PonPon.Modules.Catalog.Application.Features.Products.UpdateProductImages;
 using PonPon.Modules.Catalog.Application.Features.Products.UpdateProductPonPonSettings;
 using PonPon.Modules.Catalog.Application.Features.Products.UpdateProductVisibility;
 using PonPon.Modules.Catalog.Application.Features.Uploads;
+using PonPon.Modules.Catalog.Application.Features.Warehouses.GetWarehouses;
+using PonPon.Modules.Catalog.Application.Features.Warehouses.SyncWarehouses;
 using PonPon.Modules.Catalog.Infrastructure.ExternalServices.Supabase;
 using PonPon.Modules.Catalog.Infrastructure.ExternalServices.Zort;
 using PonPon.Modules.Catalog.Infrastructure.Persistence;
@@ -44,6 +47,9 @@ public static class CatalogModule
         {
             var options = provider.GetRequiredService<IOptions<SupabaseOptions>>().Value;
             client.BaseAddress = new Uri(options.Url.TrimEnd('/') + "/");
+        }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2)
         });
 
         services.AddDbContext<CatalogDbContext>(options =>
@@ -53,12 +59,17 @@ public static class CatalogModule
         services.AddScoped<IProductRepository, ProductRepository>();
         services.AddScoped<IFlashSaleRepository, FlashSaleRepository>();
         services.AddScoped<IHomeSlideRepository, HomeSlideRepository>();
+        services.AddScoped<IWarehouseRepository, WarehouseRepository>();
+        services.AddScoped<IProductSyncRunRepository, ProductSyncRunRepository>();
         services.AddScoped<ICatalogUnitOfWork, CatalogUnitOfWork>();
 
         services.AddHttpClient<IZortProductClient, ZortProductClient>((provider, client) =>
         {
             var options = provider.GetRequiredService<IOptions<ZortOptions>>().Value;
             client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+        }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2)
         });
 
         services.AddScoped<IRichTextImageProcessor, RichTextImageProcessor>();
@@ -67,7 +78,9 @@ public static class CatalogModule
         services.AddScoped<GetProductByIdHandler>();
         services.AddScoped<GetProductBySlugHandler>();
         services.AddScoped<SyncProductsFromZortHandler>();
+        services.AddScoped<ProductSyncBackgroundJob>();
         services.AddScoped<SyncSingleProductFromZortHandler>();
+        services.AddScoped<HandleZortProductWebhookHandler>();
         services.AddScoped<GetCategoriesHandler>();
         services.AddScoped<UpdateProductVisibilityHandler>();
         services.AddScoped<UploadProductImageHandler>();
@@ -86,6 +99,8 @@ public static class CatalogModule
         services.AddScoped<DeleteHomeSlideHandler>();
         services.AddScoped<ReorderHomeSlidesHandler>();
         services.AddScoped<UploadAdminFileHandler>();
+        services.AddScoped<GetWarehousesHandler>();
+        services.AddScoped<SyncWarehousesHandler>();
 
         return services;
     }

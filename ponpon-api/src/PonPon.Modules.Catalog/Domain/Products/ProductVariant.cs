@@ -34,12 +34,19 @@ public sealed class ProductVariant : Entity
     public string? ImageUrl { get; private set; }
     public bool IsActiveFromZort { get; private set; }
     public ProductStatus Status { get; private set; }
+    public string? OptionsJson { get; private set; }
     public string? RawZortJson { get; private set; }
     public DateTime? LastSyncedAt { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
     public bool IsVisibleToCustomer => IsActiveFromZort && Status == ProductStatus.Active && AvailableStock > 0;
+
+    public void UpdatePonPonSettings(string? optionsJson, DateTime now)
+    {
+        OptionsJson = optionsJson;
+        UpdatedAt = now;
+    }
 
     public static ProductVariant CreateFromZort(Guid productId, string baseSku, string? variantCode, ProductSnapshot snapshot, DateTime now)
     {

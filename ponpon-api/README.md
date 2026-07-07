@@ -172,3 +172,33 @@ Use a stable `clientRequestId` for retries; it is sent to ZORT as `uniquenumber`
 
 Customers only receive orders linked to their internal PonPon customer ID. List filters:
 `status`, `paymentStatus`, `page`, and `pageSize`.
+
+## Admin Dashboard
+
+The dashboard endpoint aggregates daily sales, average order value, order/payment statuses,
+low-stock products, latest orders, and ZORT sync health in the requested time zone:
+
+```http
+GET /api/admin/dashboard?date=2026-06-29&timeZone=Asia/Bangkok&lowStockThreshold=5
+Authorization: Bearer <admin_access_token>
+```
+
+Recent product and order sync runs are available from:
+
+```http
+GET /api/admin/dashboard/sync-runs?limit=20
+Authorization: Bearer <admin_access_token>
+```
+
+Both ZORT sync endpoints enqueue durable Hangfire jobs and return `202 Accepted`
+with `syncRunId`, `backgroundJobId`, and the initial `Pending` status:
+
+```http
+POST /api/admin/products/sync-zort
+POST /api/admin/orders/sync-zort
+```
+
+Hangfire stores its queue in the same PostgreSQL database and creates its own
+`hangfire` schema automatically. Poll
+`GET /api/admin/dashboard/sync-runs/{syncRunId}` until the matching run is no
+longer `Pending` or `Running`.

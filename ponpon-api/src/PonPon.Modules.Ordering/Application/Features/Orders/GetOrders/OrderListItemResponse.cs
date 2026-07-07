@@ -14,4 +14,6 @@ public sealed record OrderListItemResponse(
     string? TrackingNo,
     DateTime? OrderDate,
     string SalesChannel,
-    DateTime LastSyncedAt);
+    DateTime LastSyncedAt,
+    string? ReturnRequestStatus,
+    string? RefundRequestStatus);
