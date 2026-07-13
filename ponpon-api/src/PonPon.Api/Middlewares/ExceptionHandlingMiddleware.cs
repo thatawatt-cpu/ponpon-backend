@@ -6,8 +6,15 @@ namespace PonPon.Api.Middlewares;
 public sealed class ExceptionHandlingMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly ILogger<ExceptionHandlingMiddleware> _logger;
 
-    public ExceptionHandlingMiddleware(RequestDelegate next) => _next = next;
+    public ExceptionHandlingMiddleware(
+        RequestDelegate next,
+        ILogger<ExceptionHandlingMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
 
     public async Task InvokeAsync(HttpContext context)
     {
@@ -30,6 +37,18 @@ public sealed class ExceptionHandlingMiddleware
         catch (BusinessRuleException ex)
         {
             await WriteErrorAsync(context, StatusCodes.Status409Conflict, "business_rule", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled exception for {Method} {Path}", context.Request.Method, context.Request.Path);
+            if (!context.Response.HasStarted)
+            {
+                await WriteErrorAsync(
+                    context,
+                    StatusCodes.Status500InternalServerError,
+                    "internal_error",
+                    "An unexpected error occurred.");
+            }
         }
     }
 
