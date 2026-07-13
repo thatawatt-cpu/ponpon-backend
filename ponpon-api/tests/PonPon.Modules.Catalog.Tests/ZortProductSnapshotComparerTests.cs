@@ -5,6 +5,15 @@ namespace PonPon.Modules.Catalog.Tests;
 
 public sealed class ZortProductSnapshotComparerTests
 {
+    public void NewProductIsHiddenByDefault()
+    {
+        var now = new DateTime(2026, 7, 13, 0, 0, 0, DateTimeKind.Utc);
+
+        var product = Product.CreateFromZort(CreateSnapshot(), now);
+
+        AssertEqual(false, product.IsVisibleOnLiff);
+    }
+
     public void SameSnapshotWithDifferentJsonPropertyOrderIsUnchanged()
     {
         var now = new DateTime(2026, 6, 16, 0, 0, 0, DateTimeKind.Utc);

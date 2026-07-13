@@ -17,7 +17,7 @@ public sealed class Product : AggregateRoot, IAuditableEntity
         Name = string.Empty;
         Source = ProductSource.Zort;
         Status = ProductStatus.Active;
-        IsVisibleOnLiff = true;
+        IsVisibleOnLiff = false;
         CreatedAt = now;
     }
 

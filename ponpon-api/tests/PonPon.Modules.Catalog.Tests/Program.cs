@@ -6,6 +6,8 @@ using PonPon.Modules.Catalog.Tests;
 
 var unitTests = new (string Name, Action Run)[]
 {
+    (nameof(ZortProductSnapshotComparerTests.NewProductIsHiddenByDefault),
+        new ZortProductSnapshotComparerTests().NewProductIsHiddenByDefault),
     (nameof(ZortProductSnapshotComparerTests.SameSnapshotWithDifferentJsonPropertyOrderIsUnchanged),
         new ZortProductSnapshotComparerTests().SameSnapshotWithDifferentJsonPropertyOrderIsUnchanged),
     (nameof(ZortProductSnapshotComparerTests.ChangedStockIsChanged),
