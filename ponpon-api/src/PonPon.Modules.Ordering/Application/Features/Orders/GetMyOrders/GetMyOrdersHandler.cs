@@ -29,15 +29,16 @@ public sealed class GetMyOrdersHandler
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var statusFilter = ParseStatusFilter<ZortOrderStatus>(query.Status);
         var paymentStatusFilter = ParseStatusFilter<ZortPaymentStatus>(query.PaymentStatus);
+        var filter = ParseFilter(query.Filter);
 
         var projection = await _orders.GetCustomerOrdersAsync(
-            customerId, statusFilter, paymentStatusFilter, page, pageSize, cancellationToken);
+            customerId, statusFilter, paymentStatusFilter, filter, page, pageSize, cancellationToken);
 
         // collect SKUs ที่ยังไม่มี imageUrl หรือ options เพื่อ enrich จาก catalog
         var skusToEnrich = projection.Items
             .SelectMany(p => p.ItemsPreview)
-            .Where(i => i.ImageUrl is null && i.OptionsJson is null)
-            .Select(i => i.Sku)
+            .Where(i => i.Item.ImageUrl is null && i.Item.OptionsJson is null)
+            .Select(i => i.Item.Sku)
             .ToHashSet();
 
         var catalogLookup = skusToEnrich.Count > 0
@@ -54,9 +55,11 @@ public sealed class GetMyOrdersHandler
             p.Order.ShippingChannel,
             p.Order.TrackingNo,
             p.Order.OrderDate,
+            p.Order.ReceivedAtUtc,
             p.ItemsCount,
-            p.ItemsPreview.Select(item =>
+            p.ItemsPreview.Select(preview =>
             {
+                var item = preview.Item;
                 var imageUrl = item.ImageUrl;
                 var optionsJson = item.OptionsJson;
                 if (imageUrl is null && catalogLookup.TryGetValue(item.Sku, out var cat))
@@ -74,6 +77,8 @@ public sealed class GetMyOrdersHandler
                     (int)item.Quantity,
                     item.TotalPrice,
                     imageUrl,
+                    preview.ReviewId,
+                    preview.ReviewId.HasValue,
                     optionsJson is not null
                         ? JsonSerializer.Deserialize<MyOrderItemOptionResponse[]>(optionsJson) ?? []
                         : []);
@@ -113,5 +118,21 @@ public sealed class GetMyOrdersHandler
             .ToArray();
 
         return statuses.Length == 0 ? null : statuses;
+    }
+
+    private static MyOrderFilter? ParseFilter(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "awaiting_receive" or "awaiting-receive" => MyOrderFilter.AwaitingReceive,
+            "completed" => MyOrderFilter.Completed,
+            "return_refund" or "return-refund" => MyOrderFilter.ReturnRefund,
+            "awaiting_review" or "awaiting-review" => MyOrderFilter.AwaitingReview,
+            _ => throw new BadRequestException(
+                "Order filter must be awaiting_receive, completed, return_refund, or awaiting_review.")
+        };
     }
 }

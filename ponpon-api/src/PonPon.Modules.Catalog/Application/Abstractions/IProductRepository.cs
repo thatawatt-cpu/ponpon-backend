@@ -6,10 +6,16 @@ namespace PonPon.Modules.Catalog.Application.Abstractions;
 public interface IProductRepository
 {
     Task<IReadOnlyCollection<Product>> GetCustomerProductsAsync(string? keyword, string? category, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<Features.Products.GetProducts.ProductListItemReadModel>> GetCustomerProductListItemsAsync(string? keyword, string? category, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<Product>> GetFeaturedCustomerProductsAsync(int limit, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<Product>> GetRelatedCustomerProductsAsync(Guid productId, string? categoryName, int limit, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<Features.Products.GetProducts.ProductListItemReadModel>> GetRelatedCustomerProductListItemsAsync(Guid productId, string? categoryName, int limit, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<Product>> GetAdminProductsAsync(string? keyword, ProductStatus? status, ProductSource? source, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<Features.Products.GetProducts.ProductListItemReadModel>> GetAdminProductListItemsAsync(string? keyword, ProductStatus? status, ProductSource? source, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<Product>> GetByIdsAsync(IReadOnlySet<Guid> ids, CancellationToken cancellationToken = default);
     Task<Product?> GetByIdWithVariantsAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<Product>> GetByIdsWithVariantsAsync(IReadOnlySet<Guid> ids, CancellationToken cancellationToken = default);
     Task<Product?> GetByIdWithVariantsAndImagesAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Product?> GetBySlugWithVariantsAndImagesAsync(string slug, CancellationToken cancellationToken = default);
     Task<Product?> GetByIdWithImagesAsync(Guid id, CancellationToken cancellationToken = default);
@@ -31,10 +37,5 @@ public interface IProductRepository
     Task AddCategoriesAsync(IEnumerable<Category> categories, CancellationToken cancellationToken = default);
     Task<bool> TryReserveVariantsStockAsync(IReadOnlyDictionary<Guid, int> variantQuantities, CancellationToken cancellationToken = default);
     Task ReleaseVariantsStockAsync(IReadOnlyDictionary<Guid, int> variantQuantities, CancellationToken cancellationToken = default);
-    Task<bool> TryReleaseOrderVariantsStockAsync(
-        Guid orderId,
-        IReadOnlyDictionary<Guid, int> variantQuantities,
-        DateTime releasedAtUtc,
-        CancellationToken cancellationToken = default);
     Task<IReadOnlyDictionary<string, (string? ImageUrl, string? OptionsJson)>> GetVariantImageAndOptionsBySkusAsync(IReadOnlySet<string> skus, CancellationToken cancellationToken = default);
 }

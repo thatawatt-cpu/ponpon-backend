@@ -89,6 +89,12 @@ internal static class OrderPaymentSecurity
                 || string.Equals(actualSourceType, "card", StringComparison.OrdinalIgnoreCase);
         }
 
+        if (string.Equals(expectedSourceType, "mobile_banking", StringComparison.OrdinalIgnoreCase))
+        {
+            return actualSourceType?.StartsWith("mobile_banking", StringComparison.OrdinalIgnoreCase) == true
+                || actualSourceType?.StartsWith("mobile-banking", StringComparison.OrdinalIgnoreCase) == true;
+        }
+
         return string.Equals(actualSourceType, expectedSourceType, StringComparison.OrdinalIgnoreCase);
     }
 }

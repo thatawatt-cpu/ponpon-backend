@@ -10,7 +10,11 @@ public sealed record CustomerOrderListProjection(
 public sealed record CustomerOrderItem(
     Order Order,
     int ItemsCount,
-    IReadOnlyList<OrderItem> ItemsPreview);
+    IReadOnlyList<CustomerOrderItemPreview> ItemsPreview);
+
+public sealed record CustomerOrderItemPreview(
+    OrderItem Item,
+    Guid? ReviewId);
 
 public sealed record AdminOrderListItem(
     Order Order,
@@ -39,6 +43,7 @@ public interface IOrderRepository
         Guid customerId,
         IReadOnlyCollection<string>? statuses,
         IReadOnlyCollection<string>? paymentStatuses,
+        MyOrderFilter? filter,
         int page,
         int pageSize,
         CancellationToken cancellationToken = default);
@@ -46,10 +51,17 @@ public interface IOrderRepository
         Guid id,
         Guid customerId,
         CancellationToken cancellationToken = default);
+    Task<IReadOnlyDictionary<Guid, Guid>> GetReviewIdsByOrderItemIdsAsync(
+        IReadOnlyCollection<Guid> orderItemIds,
+        CancellationToken cancellationToken = default);
     Task<Order?> GetByZortOrderIdAsync(long zortOrderId, CancellationToken cancellationToken = default);
     Task<int> CountCustomerCompletedOrdersAsync(Guid customerId, CancellationToken cancellationToken = default);
     Task ReloadAsync(Order order, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<Order>> GetPendingZortSyncAsync(int limit, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<Order>> GetDeliveredUnreceivedOlderThanAsync(
+        DateTime cutoffUtc,
+        int limit,
+        CancellationToken cancellationToken = default);
     Task AddAsync(Order order, CancellationToken cancellationToken = default);
     Task<bool> UpdatePaymentStatusAsync(
         Guid orderId,
@@ -58,6 +70,8 @@ public interface IOrderRepository
         string paymentStatus,
         decimal paymentAmount,
         CancellationToken cancellationToken = default);
+    Task<bool> TryMarkStockReleasedAsync(Guid orderId, DateTime releasedAtUtc, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<Order>> GetExpiredUnpaidAsync(DateTime now, string salesChannel, CancellationToken cancellationToken = default);
     Task<IOrderPaymentLock> AcquirePaymentLockAsync(Guid orderId, CancellationToken cancellationToken = default);
+    Task<IOrderPaymentLock> AcquireClientRequestLockAsync(Guid clientRequestId, CancellationToken cancellationToken = default);
 }

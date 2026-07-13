@@ -36,6 +36,12 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.HasIndex(x => x.Slug).IsUnique();
         builder.HasIndex(x => x.ZortProductId);
         builder.HasIndex(x => x.BaseSku);
+        builder.HasIndex(x => new { x.IsActiveFromZort, x.IsVisibleOnLiff, x.Status, x.AvailableStock, x.Name })
+            .HasDatabaseName("IX_products_customer_list");
+        builder.HasIndex(x => new { x.CategoryName, x.IsActiveFromZort, x.IsVisibleOnLiff, x.Status, x.AvailableStock, x.Name })
+            .HasDatabaseName("IX_products_customer_category_list");
+        builder.HasIndex(x => new { x.Status, x.Source, x.UpdatedAt, x.CreatedAt })
+            .HasDatabaseName("IX_products_admin_list");
         builder.HasMany(x => x.Images).WithOne().HasForeignKey(x => x.ProductId);
         builder.HasMany(x => x.Variants).WithOne().HasForeignKey(x => x.ProductId);
         builder.Navigation(x => x.Images).UsePropertyAccessMode(PropertyAccessMode.Field);

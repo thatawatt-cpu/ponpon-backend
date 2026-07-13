@@ -17,7 +17,7 @@ public sealed class ExceptionHandlingMiddleware
         }
         catch (BadRequestException ex)
         {
-            await WriteErrorAsync(context, StatusCodes.Status400BadRequest, "bad_request", ex.Message);
+            await WriteErrorAsync(context, StatusCodes.Status400BadRequest, ex.ErrorCode, ex.Message, ex.Details);
         }
         catch (UnauthorizedException ex)
         {
@@ -33,9 +33,14 @@ public sealed class ExceptionHandlingMiddleware
         }
     }
 
-    private static async Task WriteErrorAsync(HttpContext context, int statusCode, string code, string message)
+    private static async Task WriteErrorAsync(
+        HttpContext context,
+        int statusCode,
+        string code,
+        string message,
+        object? details = null)
     {
         context.Response.StatusCode = statusCode;
-        await context.Response.WriteAsJsonAsync(new ErrorResponse(code, message));
+        await context.Response.WriteAsJsonAsync(new ErrorResponse(code, message, details));
     }
 }

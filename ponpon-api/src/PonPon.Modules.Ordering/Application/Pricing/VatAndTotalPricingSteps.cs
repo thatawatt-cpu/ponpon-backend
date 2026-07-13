@@ -51,10 +51,20 @@ public sealed class FinalizePricingStep : IPricingStep
 
     public Task ExecuteAsync(PricingContext context, CancellationToken cancellationToken)
     {
+        var itemPromotionDiscountAmount = Math.Max(
+            0,
+            context.PromotionDiscountAmount - context.PromotionShippingDiscountAmount);
+        var itemCouponDiscountAmount = Math.Max(
+            0,
+            context.CouponDiscountAmount - context.CouponShippingDiscountAmount);
+        var payableShippingAmount = Math.Max(
+            0,
+            context.ShippingAmount - context.ShippingDiscountAmount);
+
         var total = context.Lines.Sum(x => x.Total)
-            - context.PromotionDiscountAmount
-            - context.CouponDiscountAmount
-            + context.ShippingAmount;
+            - itemPromotionDiscountAmount
+            - itemCouponDiscountAmount
+            + payableShippingAmount;
 
         if (_options.VatEnabled && !_options.PricesIncludeVat)
             total += context.VatAmount;

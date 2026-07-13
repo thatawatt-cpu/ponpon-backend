@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using PonPon.Modules.Settings.Application.Features.IntegrationSettings;
 using PonPon.Modules.Settings.Application.Features.GetZortWebhook;
 using PonPon.Modules.Settings.Application.Features.GetZortWebhookFromZort;
 using PonPon.Modules.Settings.Application.Features.RegisterZortWebhook;
@@ -11,6 +12,23 @@ namespace PonPon.Modules.Settings.Controllers;
 [Authorize(Roles = "Admin")]
 public sealed class AdminSettingsController : ControllerBase
 {
+    [HttpGet("integrations")]
+    public async Task<ActionResult<IntegrationSettingsResponse>> GetIntegrations(
+        [FromServices] GetIntegrationSettingsHandler handler,
+        CancellationToken cancellationToken)
+        => Ok(await handler.HandleAsync(cancellationToken));
+
+    [HttpPut("integrations/{group}")]
+    public async Task<IActionResult> UpdateIntegration(
+        string group,
+        [FromBody] UpdateIntegrationSettingsRequest request,
+        [FromServices] UpdateIntegrationSettingsHandler handler,
+        CancellationToken cancellationToken)
+    {
+        await handler.HandleAsync(group, request, cancellationToken);
+        return NoContent();
+    }
+
     [HttpGet("zort/webhook")]
     public async Task<IActionResult> GetZortWebhook(
         [FromServices] GetZortWebhookHandler handler,

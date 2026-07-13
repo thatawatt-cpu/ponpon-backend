@@ -15,6 +15,12 @@ public sealed class ProductsController : ControllerBase
         return Ok(await handler.HandleAsync(new GetProductsQuery(request.Keyword, request.Category, null, null, request.Page, request.PageSize), cancellationToken));
     }
 
+    [HttpGet("api/shop/products")]
+    public async Task<ActionResult<IReadOnlyCollection<ProductListItemResponse>>> GetShopProducts([FromQuery] GetProductsRequest request, [FromServices] GetProductsHandler handler, CancellationToken cancellationToken)
+    {
+        return Ok(await handler.HandleAsync(new GetProductsQuery(request.Keyword, request.Category, null, null, request.Page, request.PageSize), cancellationToken));
+    }
+
     [HttpGet("api/products/{id:guid}")]
     public async Task<ActionResult<ProductDetailResponse>> GetProductById(Guid id, [FromServices] GetProductByIdHandler handler, CancellationToken cancellationToken)
     {

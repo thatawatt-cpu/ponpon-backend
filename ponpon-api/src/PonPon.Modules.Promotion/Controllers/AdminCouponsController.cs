@@ -178,6 +178,8 @@ public sealed record CouponBulkGenerateRequest(
 }
 
 public sealed record CouponTemplateRequest(
+    string? Name,
+    string? Description,
     string Type,
     decimal Value,
     decimal MinimumSubtotal,
@@ -195,6 +197,8 @@ public sealed record CouponTemplateRequest(
     bool CanStackWithCoupons = true)
 {
     public CouponTemplateInput ToInput() => new(
+        Name,
+        Description,
         Type,
         Value,
         MinimumSubtotal,
@@ -262,6 +266,8 @@ public sealed record CouponBulkGenerationJobResponse(
 
 public sealed record CouponRequest(
     string Code,
+    string? Name,
+    string? Description,
     string Type,
     decimal Value,
     decimal MinimumSubtotal,
@@ -289,7 +295,9 @@ public sealed record CouponRequest(
         Conditions?.Select(x => new CouponConditionInput(x.Type, x.Value)).ToArray(),
         CanStackWithPromotions,
         CanStackWithCoupons,
-        CampaignId);
+        CampaignId,
+        Name,
+        Description);
 }
 
 public sealed record CouponScopeRequest(
@@ -309,6 +317,8 @@ public sealed record CouponResponse(
     Guid Id,
     Guid? CampaignId,
     string Code,
+    string Name,
+    string? Description,
     string Type,
     decimal Value,
     decimal MinimumSubtotal,
@@ -327,7 +337,8 @@ public sealed record CouponResponse(
     IReadOnlyCollection<CouponConditionResponse> Conditions)
 {
     public static CouponResponse From(Coupon x) => new(
-        x.Id, x.CampaignId, x.Code, x.Type, x.Value, x.MinimumSubtotal, x.MaximumDiscount,
+        x.Id, x.CampaignId, x.Code, x.Name, x.Description,
+        x.Type, x.Value, x.MinimumSubtotal, x.MaximumDiscount,
         x.StartsAtUtc, x.EndsAtUtc, x.CanCombineWithFlashSale,
         x.CanStackWithPromotions, x.CanStackWithCoupons,
         x.MaximumTotalUses, x.MaximumUsesPerCustomer, x.UsedCount, x.IsActive,

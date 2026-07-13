@@ -8,6 +8,7 @@ using PonPon.Modules.Ordering.Application.Features.Orders.PreviewPricing;
 using PonPon.Modules.Ordering.Application.Features.Orders.ApproveManualRefund;
 using PonPon.Modules.Ordering.Application.Features.Orders.CancelMyOrder;
 using PonPon.Modules.Ordering.Application.Features.Orders.CancelOrder;
+using PonPon.Modules.Ordering.Application.Features.Orders.ConfirmReceived;
 using PonPon.Modules.Ordering.Application.Features.Orders.GetOrderById;
 using PonPon.Modules.Ordering.Application.Features.Orders.GetOrders;
 using PonPon.Modules.Ordering.Application.Features.Orders.GetMyOrderById;
@@ -18,6 +19,7 @@ using PonPon.Shared.Application.Abstractions;
 using PonPon.Modules.Ordering.Application.Features.Orders.SyncOrdersFromZort;
 using PonPon.Modules.Ordering.Application.Features.Orders.SyncPendingOrderToZort;
 using PonPon.Modules.Ordering.Application.Features.Orders.ExpireUnpaidOrders;
+using PonPon.Modules.Ordering.Application.Features.Orders.CheckoutPricing;
 using PonPon.Modules.Ordering.Application.Services;
 using PonPon.Modules.Ordering.Application.Features.Orders.ReturnOrder;
 using PonPon.Modules.Ordering.Infrastructure.ExternalServices.Zort;
@@ -33,22 +35,25 @@ public static class OrderingModule
     {
         services.Configure<ZortOrderOptions>(configuration.GetSection("Zort"));
         services.Configure<PricingOptions>(configuration.GetSection("Pricing"));
+        services.AddMemoryCache();
 
         services.AddDbContext<OrderingDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection"), npgsql =>
                 npgsql.MigrationsHistoryTable("__ef_migrations_history", OrderingDbContext.Schema)));
 
         services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<ICheckoutQuoteRepository, CheckoutQuoteRepository>();
         services.AddScoped<IOrderSyncRunRepository, OrderSyncRunRepository>();
         services.AddScoped<IOrderReturnRequestRepository, OrderReturnRequestRepository>();
         services.AddScoped<IOrderingUnitOfWork, OrderingUnitOfWork>();
+        services.AddScoped<IProductSalesReadService, ProductSalesReadService>();
         services.AddScoped<IOrderShippingStatusUpdater, OrderShippingStatusUpdater>();
         services.AddScoped<OrderStockReservationService>();
         services.AddScoped<PricingPipeline>();
+        services.AddScoped<CheckoutPricingQuoteService>();
         services.AddScoped<IPricingStep, FlashSalePricingStep>();
         services.AddScoped<IPricingStep, AutoPromotionPricingStep>();
         services.AddScoped<IPricingStep, CouponPricingStep>();
-        services.AddScoped<IPricingStep, VatPricingStep>();
         services.AddScoped<IPricingStep, FinalizePricingStep>();
 
         services.AddHttpClient<IZortOrderClient, ZortOrderClient>((provider, client) =>
@@ -73,6 +78,7 @@ public static class OrderingModule
         services.AddScoped<CancelOrderHandler>();
         services.AddScoped<ApproveManualRefundHandler>();
         services.AddScoped<CancelMyOrderHandler>();
+        services.AddScoped<ConfirmReceivedHandler>();
         services.AddScoped<HandleZortWebhookHandler>();
         services.AddScoped<CreateOrderReturnRequestHandler>();
         services.AddScoped<GetMyOrderReturnRequestHandler>();
@@ -81,6 +87,7 @@ public static class OrderingModule
         services.AddScoped<IZortWebhookRegistrar, ZortWebhookRegistrar>();
 
         services.AddHostedService<ExpiredOrderCancellationJob>();
+        services.AddHostedService<AutoConfirmReceivedJob>();
         services.AddHostedService<PendingZortOrderSyncJob>();
 
         return services;

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using PonPon.Modules.Ordering.Application.Features.Orders.AddOrder;
 using PonPon.Modules.Ordering.Application.Features.Orders.PreviewPricing;
 using PonPon.Modules.Ordering.Application.Features.Orders.CancelMyOrder;
+using PonPon.Modules.Ordering.Application.Features.Orders.ConfirmReceived;
 using PonPon.Modules.Ordering.Application.Features.Orders.GetMyOrderById;
 using PonPon.Modules.Ordering.Application.Features.Orders.GetMyOrders;
 using PonPon.Modules.Ordering.Application.Features.Orders.ReturnOrder;
@@ -31,6 +32,7 @@ public sealed class OrderController : ControllerBase
     {
         var command = new AddOrderCommand(
             request.ClientRequestId,
+            request.QuoteId,
             request.CustomerName,
             request.CustomerEmail,
             request.CustomerPhone,
@@ -65,7 +67,7 @@ public sealed class OrderController : ControllerBase
             : request.PaymentStatus;
 
         return Ok(await handler.HandleAsync(
-            new GetMyOrdersQuery(statusFilter, paymentStatusFilter, request.Page, request.PageSize),
+            new GetMyOrdersQuery(statusFilter, paymentStatusFilter, request.Filter, request.Page, request.PageSize),
             cancellationToken));
     }
 
@@ -95,6 +97,25 @@ public sealed class OrderController : ControllerBase
 
         await handler.HandleAsync(new CancelMyOrderCommand(id, customerId, request.Reason), cancellationToken);
         return NoContent();
+    }
+
+    [HttpPost("{id:guid}/confirm-received")]
+    public async Task<ActionResult<ConfirmReceivedResponse>> ConfirmReceived(
+        Guid id,
+        [FromServices] ConfirmReceivedHandler handler,
+        [FromServices] ICurrentUser currentUser,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUser.IsAuthenticated
+            || currentUser.UserType != "Customer"
+            || currentUser.CustomerId is not Guid customerId)
+        {
+            return Forbid();
+        }
+
+        return Ok(await handler.HandleAsync(
+            new ConfirmReceivedCommand(id, customerId),
+            cancellationToken));
     }
 
     [HttpPost("{id:guid}/return-request")]

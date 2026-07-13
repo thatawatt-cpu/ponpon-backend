@@ -27,6 +27,8 @@ public sealed class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
         builder.HasIndex(x => x.OrderId);
         builder.HasIndex(x => x.ZortProductId);
         builder.HasIndex(x => x.ProductId);
+        builder.HasIndex(x => new { x.ProductId, x.OrderId })
+            .HasDatabaseName("IX_order_items_ProductId_OrderId");
         builder.HasIndex(x => x.VariantId);
     }
 }

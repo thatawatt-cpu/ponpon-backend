@@ -23,26 +23,33 @@ public sealed class CouponPricingStep : IPricingStep
         if (context.CouponCodes.Count == 0)
             return;
         if (!context.CanApplyCoupon)
-            throw new BadRequestException("Coupon cannot be combined with an active promotion.");
+            throw CouponError("Coupon cannot be combined with an active promotion.", "coupon_cannot_combine_with_promotion");
         if (context.CouponCodes.Count > 2)
-            throw new BadRequestException("Only one discount coupon and one free shipping coupon can be used together.");
+            throw CouponError(
+                "Only one discount coupon and one free shipping coupon can be used together.",
+                "coupon_stack_limit_exceeded");
 
         var coupons = new List<Coupon>(context.CouponCodes.Count);
         foreach (var code in context.CouponCodes)
         {
             var coupon = await _coupons.GetByCodeAsync(code, cancellationToken)
-                ?? throw new BadRequestException("Coupon code is invalid.");
+                ?? throw CouponError(
+                    "Coupon code is invalid.",
+                    "coupon_invalid",
+                    new { couponCode = code });
             coupons.Add(coupon);
         }
 
         if (coupons.Select(x => x.Id).Distinct().Count() != coupons.Count)
-            throw new BadRequestException("Duplicate coupon code is not allowed.");
+            throw CouponError("Duplicate coupon code is not allowed.", "coupon_duplicate");
         if (coupons.Count > 1 && coupons.Any(x => !x.CanStackWithCoupons))
-            throw new BadRequestException("One or more coupons cannot be combined with another coupon.");
+            throw CouponError(
+                "One or more coupons cannot be combined with another coupon.",
+                "coupon_cannot_stack_with_coupon");
         if (coupons.Count(x => x.Type == "free_shipping") > 1)
-            throw new BadRequestException("Only one free shipping coupon can be used.");
+            throw CouponError("Only one free shipping coupon can be used.", "coupon_stack_limit_exceeded");
         if (coupons.Count(x => x.Type != "free_shipping") > 1)
-            throw new BadRequestException("Only one discount coupon can be used.");
+            throw CouponError("Only one discount coupon can be used.", "coupon_stack_limit_exceeded");
 
         foreach (var coupon in coupons.OrderBy(x => x.Type == "free_shipping" ? 1 : 0))
         {
@@ -60,29 +67,60 @@ public sealed class CouponPricingStep : IPricingStep
             || (coupon.EndsAtUtc.HasValue && context.NowUtc > coupon.EndsAtUtc.Value)
             || (coupon.MaximumTotalUses.HasValue && coupon.UsedCount >= coupon.MaximumTotalUses.Value))
         {
-            throw new BadRequestException("Coupon is not active or its quota is exhausted.");
+            throw CouponError(
+                "Coupon is not active or its quota is exhausted.",
+                "coupon_inactive_or_quota_exhausted",
+                CouponDetails(coupon));
         }
         if (context.CustomerId.HasValue && coupon.MaximumUsesPerCustomer.HasValue
             && await _coupons.GetActiveCustomerUsageCountAsync(
                 coupon.Id, context.CustomerId.Value, cancellationToken) >= coupon.MaximumUsesPerCustomer.Value)
-            throw new BadRequestException("Coupon usage limit for this customer has been reached.");
+            throw CouponError(
+                "Coupon usage limit for this customer has been reached.",
+                "coupon_customer_usage_limit_reached",
+                CouponDetails(coupon));
         if (context.HasFlashSale && !coupon.CanCombineWithFlashSale)
-            throw new BadRequestException("Coupon cannot be combined with a flash sale.");
+            throw CouponError(
+                "Coupon cannot be combined with a flash sale.",
+                "coupon_cannot_combine_with_flash_sale",
+                CouponDetails(coupon));
         if (context.AppliedPromotions.Count > 0 && !coupon.CanStackWithPromotions)
-            throw new BadRequestException("Coupon cannot be combined with active promotions.");
+            throw CouponError(
+                "Coupon cannot be combined with active promotions.",
+                "coupon_cannot_combine_with_promotion",
+                CouponDetails(coupon));
         if (!await IsCustomerEligibleAsync(coupon, context, cancellationToken))
-            throw new BadRequestException("Coupon is not applicable to this customer.");
+            throw CouponError(
+                "Coupon is not applicable to this customer.",
+                "coupon_customer_not_eligible",
+                CouponDetails(coupon));
         ValidateConditions(coupon, context);
 
         var eligibleLines = coupon.Scopes.Count == 0
             ? context.Lines
             : context.Lines.Where(line => coupon.Scopes.Any(scope => Matches(scope, line))).ToList();
         if (eligibleLines.Count == 0)
-            throw new BadRequestException("Coupon is not applicable to the selected products.");
+            throw CouponError(
+                "Coupon is not applicable to the selected products.",
+                "coupon_product_not_eligible",
+                CouponDetails(coupon));
 
         var eligibleSubtotal = eligibleLines.Sum(x => x.Total);
         if (eligibleSubtotal < coupon.MinimumSubtotal)
-            throw new BadRequestException($"Coupon requires a minimum subtotal of {coupon.MinimumSubtotal:0.00}.");
+        {
+            var remainingSubtotal = coupon.MinimumSubtotal - eligibleSubtotal;
+            throw new BadRequestException(
+                $"Coupon requires a minimum subtotal of {coupon.MinimumSubtotal:0.00}.",
+                "coupon_minimum_subtotal_not_met",
+                new
+                {
+                    couponId = coupon.Id,
+                    couponCode = coupon.Code,
+                    minimumSubtotal = coupon.MinimumSubtotal,
+                    eligibleSubtotal,
+                    remainingSubtotal
+                });
+        }
 
         var availableShippingAmount = Math.Max(0, context.ShippingAmount - context.ShippingDiscountAmount);
         var isFreeShipping = coupon.Type == "free_shipping";
@@ -91,7 +129,10 @@ public sealed class CouponPricingStep : IPricingStep
             "fixed" => coupon.Value,
             "percentage" => eligibleSubtotal * coupon.Value / 100m,
             "free_shipping" => availableShippingAmount,
-            _ => throw new BadRequestException("Coupon has an invalid discount type.")
+            _ => throw CouponError(
+                "Coupon has an invalid discount type.",
+                "coupon_invalid_discount_type",
+                CouponDetails(coupon))
         };
         if (coupon.MaximumDiscount.HasValue)
             discount = Math.Min(discount, coupon.MaximumDiscount.Value);
@@ -107,7 +148,7 @@ public sealed class CouponPricingStep : IPricingStep
             ? 0
             : discount * eligibleTaxableSubtotal / eligibleSubtotal;
         context.AppliedCouponId ??= coupon.Id;
-        context.AppliedCoupons.Add(new AppliedCoupon(coupon.Id, coupon.Code, coupon.Type, discount));
+        context.AppliedCoupons.Add(new AppliedCoupon(coupon.Id, coupon.Code, coupon.Name, coupon.Type, discount));
         context.CouponDiscountAmount += discount;
         if (isFreeShipping)
             context.CouponShippingDiscountAmount += discount;
@@ -152,7 +193,9 @@ public sealed class CouponPricingStep : IPricingStep
     private async Task<int> CountCompletedOrdersAsync(Guid customerId, CancellationToken cancellationToken)
     {
         if (_orders is null)
-            throw new BadRequestException("Coupon customer eligibility cannot be checked.");
+            throw CouponError(
+                "Coupon customer eligibility cannot be checked.",
+                "coupon_customer_eligibility_unavailable");
         return await _orders.CountCustomerCompletedOrdersAsync(customerId, cancellationToken);
     }
 
@@ -170,11 +213,34 @@ public sealed class CouponPricingStep : IPricingStep
             if (actual is null || !group.Any(x =>
                     string.Equals(x.Value, actual, StringComparison.OrdinalIgnoreCase)))
             {
-                throw new BadRequestException(
-                    $"Coupon is not applicable to the selected {group.Key.Replace('_', ' ')}.");
+                var conditionCode = group.Key switch
+                {
+                    "payment_method" => "coupon_payment_method_not_eligible",
+                    "shipping_channel" => "coupon_shipping_channel_not_eligible",
+                    "sales_channel" => "coupon_sales_channel_not_eligible",
+                    _ => "coupon_condition_not_eligible"
+                };
+                throw CouponError(
+                    $"Coupon is not applicable to the selected {group.Key.Replace('_', ' ')}.",
+                    conditionCode,
+                    new
+                    {
+                        conditionType = group.Key,
+                        actualValue = actual,
+                        expectedValues = group.Select(x => x.Value).ToArray()
+                    });
             }
         }
     }
+
+    private static BadRequestException CouponError(string message, string code, object? details = null)
+        => new(message, code, details);
+
+    private static object CouponDetails(Coupon coupon) => new
+    {
+        couponId = coupon.Id,
+        couponCode = coupon.Code
+    };
 
     private static bool Matches(CouponScope scope, PricingLine line)
     {

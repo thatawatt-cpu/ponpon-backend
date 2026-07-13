@@ -3,6 +3,7 @@ using PonPon.Modules.Identity;
 using PonPon.Modules.Notification;
 using PonPon.Modules.Ordering;
 using PonPon.Modules.Payment;
+using PonPon.Modules.Reviews;
 using PonPon.Modules.Settings;
 using PonPon.Modules.Shipping;
 using PonPon.Modules.Promotion;
@@ -17,6 +18,7 @@ public static class ModuleExtensions
         services.AddCatalogModule(configuration);
         services.AddPromotionModule(configuration);
         services.AddOrderingModule(configuration);
+        services.AddReviewsModule(configuration);
         services.AddShippingModule(configuration);
         services.AddPaymentModule(configuration);
         services.AddSettingsModule(configuration);

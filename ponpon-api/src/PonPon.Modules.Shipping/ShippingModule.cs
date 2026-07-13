@@ -22,6 +22,7 @@ public static class ShippingModule
     public static IServiceCollection AddShippingModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<ShippopOptions>(configuration.GetSection("Shippop"));
+        services.AddMemoryCache();
 
         services.AddDbContext<ShippingDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection"), npgsql =>

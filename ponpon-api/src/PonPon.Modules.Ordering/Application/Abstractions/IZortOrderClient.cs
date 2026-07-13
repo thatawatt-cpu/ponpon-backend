@@ -14,6 +14,15 @@ public interface IZortOrderClient
     Task VoidOrderAsync(long zortOrderId, CancellationToken cancellationToken = default);
     Task UpdateOrderPaymentAsync(string orderNumber, decimal amount, string paymentMethod, DateTime? paidAt, CancellationToken cancellationToken = default);
     Task UpdateOrderStatusAsync(string orderNumber, int status, CancellationToken cancellationToken = default);
-    Task RegisterWebhookAsync(string updateOrderUrl, string key1, string? key2 = null, string? key3 = null, CancellationToken cancellationToken = default);
+    Task RegisterWebhookAsync(
+        string updateOrderUrl,
+        string addProductUrl,
+        string updateProductUrl,
+        string deleteProductUrl,
+        string updateQuantityUrl,
+        string key1,
+        string? key2 = null,
+        string? key3 = null,
+        CancellationToken cancellationToken = default);
     Task<ZortGetWebhookResponse> GetWebhookAsync(CancellationToken cancellationToken = default);
 }

@@ -7,6 +7,7 @@ namespace PonPon.Modules.Payment.Application.Features.CreateMobileBankingCharge;
 public sealed class CreateMobileBankingChargeHandler
 {
     private const string Currency = "THB";
+    private const string SourceType = "mobile_banking";
 
     private static readonly HashSet<string> ValidBankTypes =
     [
@@ -50,7 +51,7 @@ public sealed class CreateMobileBankingChargeHandler
         var prepared = await _coordinator.PrepareAsync(
             command.OrderId,
             customerId,
-            command.BankType,
+            SourceType,
             cancellationToken);
         var result = prepared.ExistingCharge
             ?? await _omise.CreateMobileBankingChargeAsync(
@@ -69,7 +70,7 @@ public sealed class CreateMobileBankingChargeHandler
             await _coordinator.CompleteAsync(
                 prepared.Order.Id,
                 customerId,
-                command.BankType,
+                SourceType,
                 prepared.AmountSatang,
                 result,
                 cancellationToken);

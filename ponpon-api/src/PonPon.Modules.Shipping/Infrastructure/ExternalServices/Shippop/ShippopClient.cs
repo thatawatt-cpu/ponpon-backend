@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PonPon.Modules.Shipping.Application.Abstractions;
 using PonPon.Modules.Shipping.Domain;
+using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Shipping.Infrastructure.ExternalServices.Shippop;
@@ -20,17 +21,20 @@ public sealed class ShippopClient : IShippopClient
 
     private readonly HttpClient _httpClient;
     private readonly ShippopOptions _options;
+    private readonly IRuntimeSettingProvider _settings;
     private readonly IShippopSenderRepository _senders;
     private readonly ILogger<ShippopClient> _logger;
 
     public ShippopClient(
         HttpClient httpClient,
         IOptions<ShippopOptions> options,
+        IRuntimeSettingProvider settings,
         IShippopSenderRepository senders,
         ILogger<ShippopClient> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _settings = settings;
         _senders = senders;
         _logger = logger;
     }
@@ -40,17 +44,18 @@ public sealed class ShippopClient : IShippopClient
         ShippopParcel parcel,
         CancellationToken cancellationToken = default)
     {
-        EnsureConfigured();
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
         var sender = await GetRequiredSenderAsync(cancellationToken);
 
         var body = new ShippopPricelistRequest(
-            _options.ApiKey,
+            options.ApiKey,
             new Dictionary<string, ShippopPricelistItem>
             {
                 ["0"] = new(BuildSenderAddress(sender), to, ToDomesticParcel(parcel))
             });
 
-        using var response = await _httpClient.PostAsJsonAsync("pricelist/", body, JsonOptions, cancellationToken);
+        using var response = await _httpClient.PostAsJsonAsync(CreateUri(options, "pricelist/"), body, JsonOptions, cancellationToken);
         using var document = await ReadJsonAsync(response, "SHIPPOP Pricelist", cancellationToken);
 
         EnsureShippopSuccess(document.RootElement, "SHIPPOP Pricelist");
@@ -67,7 +72,8 @@ public sealed class ShippopClient : IShippopClient
         decimal cod,
         CancellationToken cancellationToken = default)
     {
-        EnsureConfigured();
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
         var sender = await GetRequiredSenderAsync(cancellationToken);
 
         var selectedCourierCode = string.IsNullOrWhiteSpace(courierCode) ? serviceCode : courierCode;
@@ -75,7 +81,7 @@ public sealed class ShippopClient : IShippopClient
             throw new BadRequestException("Shippop courier code is required.");
 
         var body = new ShippopBookingRequest(
-            _options.ApiKey,
+            options.ApiKey,
             sender.Email,
             [
                 new ShippopBookingItem(
@@ -88,7 +94,7 @@ public sealed class ShippopClient : IShippopClient
             ],
             ForceConfirm: 1);
 
-        using var response = await _httpClient.PostAsJsonAsync("booking/", body, JsonOptions, cancellationToken);
+        using var response = await _httpClient.PostAsJsonAsync(CreateUri(options, "booking/"), body, JsonOptions, cancellationToken);
         using var document = await ReadJsonAsync(response, "SHIPPOP Booking", cancellationToken);
 
         EnsureShippopSuccess(document.RootElement, "SHIPPOP Booking");
@@ -101,7 +107,7 @@ public sealed class ShippopClient : IShippopClient
         {
             try
             {
-                var confirmed = await ConfirmPurchaseAsync(booking.PurchaseId.Value, booking.TrackingCode, cancellationToken);
+                var confirmed = await ConfirmPurchaseAsync(options, booking.PurchaseId.Value, booking.TrackingCode, cancellationToken);
                 booking.CourierTrackingCode = confirmed.CourierTrackingCode ?? booking.CourierTrackingCode;
                 booking.CourierCode = string.IsNullOrWhiteSpace(confirmed.CourierCode) ? booking.CourierCode : confirmed.CourierCode;
             }
@@ -122,14 +128,15 @@ public sealed class ShippopClient : IShippopClient
         string trackingCode,
         CancellationToken cancellationToken = default)
     {
-        EnsureConfigured();
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
 
         using var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["tracking_code"] = trackingCode
         });
 
-        using var response = await _httpClient.PostAsync("tracking/", content, cancellationToken);
+        using var response = await _httpClient.PostAsync(CreateUri(options, "tracking/"), content, cancellationToken);
         using var document = await ReadJsonAsync(response, "SHIPPOP Tracking", cancellationToken);
 
         EnsureShippopSuccess(document.RootElement, "SHIPPOP Tracking");
@@ -151,27 +158,29 @@ public sealed class ShippopClient : IShippopClient
         string trackingCode,
         CancellationToken cancellationToken = default)
     {
-        EnsureConfigured();
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
 
-        var body = new ShippopCancelRequest(_options.ApiKey, trackingCode);
-        using var response = await _httpClient.PostAsJsonAsync("cancel/", body, JsonOptions, cancellationToken);
+        var body = new ShippopCancelRequest(options.ApiKey, trackingCode);
+        using var response = await _httpClient.PostAsJsonAsync(CreateUri(options, "cancel/"), body, JsonOptions, cancellationToken);
         using var document = await ReadJsonAsync(response, "SHIPPOP Cancel", cancellationToken);
 
         EnsureShippopSuccess(document.RootElement, "SHIPPOP Cancel");
     }
 
     private async Task<ShippopBookingDto> ConfirmPurchaseAsync(
+        ResolvedShippopOptions options,
         int purchaseId,
         string trackingCode,
         CancellationToken cancellationToken)
     {
         using var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
-            ["api_key"] = _options.ApiKey,
+            ["api_key"] = options.ApiKey,
             ["purchase_id"] = purchaseId.ToString(CultureInfo.InvariantCulture)
         });
 
-        using var response = await _httpClient.PostAsync("confirm/", content, cancellationToken);
+        using var response = await _httpClient.PostAsync(CreateUri(options, "confirm/"), content, cancellationToken);
         using var document = await ReadJsonAsync(response, "SHIPPOP Confirm", cancellationToken);
 
         EnsureShippopSuccess(document.RootElement, "SHIPPOP Confirm");
@@ -419,11 +428,29 @@ public sealed class ShippopClient : IShippopClient
     private static string? EmptyToNull(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private void EnsureConfigured()
+    private static void EnsureConfigured(ResolvedShippopOptions options)
     {
-        if (string.IsNullOrWhiteSpace(_options.ApiKey))
-            throw new BadRequestException("Shippop API key is not configured.");
+        if (string.IsNullOrWhiteSpace(options.ApiKey) || string.IsNullOrWhiteSpace(options.BaseUrl))
+            throw new BadRequestException("Shippop settings are not configured.");
     }
+
+    private async Task<ResolvedShippopOptions> ResolveOptionsAsync(CancellationToken cancellationToken)
+    {
+        var settings = await _settings.GetGroupAsync("Shippop", cancellationToken);
+        return new ResolvedShippopOptions(
+            Get(settings, "ApiKey", _options.ApiKey),
+            Get(settings, "BaseUrl", _options.BaseUrl));
+    }
+
+    private static Uri CreateUri(ResolvedShippopOptions options, string path)
+        => new(new Uri(options.BaseUrl.TrimEnd('/') + "/"), path);
+
+    private static string Get(IReadOnlyDictionary<string, string?> settings, string key, string fallback)
+        => settings.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : fallback;
+
+    private sealed record ResolvedShippopOptions(string ApiKey, string BaseUrl);
 
     private async Task<ShippopSender> GetRequiredSenderAsync(CancellationToken cancellationToken)
     {

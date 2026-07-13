@@ -32,7 +32,8 @@ public sealed class UpdateFlashSaleHandler
             command.EndDate,
             command.Slots,
             command.Products,
-            _clock.UtcNow);
+            _clock.UtcNow,
+            command.IsActive);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }

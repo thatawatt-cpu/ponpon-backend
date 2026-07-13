@@ -66,6 +66,8 @@ public sealed class Order : AggregateRoot, IAuditableEntity
     public bool HasStockReservation { get; private set; }
     public bool IsPaymentCreationPending { get; private set; }
     public DateTime? PaymentCreationStartedAtUtc { get; private set; }
+    public DateTime? ReceivedAtUtc { get; private set; }
+    public DateTime? DeliveredNotificationSentAtUtc { get; private set; }
     public DateTime? ZortCreatedAt { get; private set; }
     public DateTime? ZortUpdatedAt { get; private set; }
     public string RawZortJson { get; private set; } = "{}";
@@ -167,8 +169,12 @@ public sealed class Order : AggregateRoot, IAuditableEntity
         Reference = snapshot.Reference;
         Description = snapshot.Description;
         SalesChannel = snapshot.SalesChannel;
-        IntegrationCustomerId = snapshot.IntegrationCustomerId;
-        IntegrationCustomer = snapshot.IntegrationCustomer;
+        IntegrationCustomerId = string.IsNullOrWhiteSpace(snapshot.IntegrationCustomerId)
+            ? IntegrationCustomerId
+            : snapshot.IntegrationCustomerId;
+        IntegrationCustomer = string.IsNullOrWhiteSpace(snapshot.IntegrationCustomer)
+            ? IntegrationCustomer
+            : snapshot.IntegrationCustomer;
         WarehouseCode = snapshot.WarehouseCode;
         IsCod = snapshot.IsCod;
         Currency = snapshot.Currency;
@@ -241,6 +247,18 @@ public sealed class Order : AggregateRoot, IAuditableEntity
             ? TrackingNo
             : trackingNumber.Trim();
         LastSyncedAt = now;
+        UpdatedAtUtc = now;
+    }
+
+    public void MarkReceived(DateTime now)
+    {
+        ReceivedAtUtc ??= now;
+        UpdatedAtUtc = now;
+    }
+
+    public void MarkDeliveredNotificationSent(DateTime now)
+    {
+        DeliveredNotificationSentAtUtc ??= now;
         UpdatedAtUtc = now;
     }
 }

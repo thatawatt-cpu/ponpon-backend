@@ -21,7 +21,13 @@ var unitTests = new (string Name, Action Run)[]
     (nameof(ZortProductTagMatcherTests.NullTagDoesNotMatch),
         new ZortProductTagMatcherTests().NullTagDoesNotMatch),
     (nameof(ZortProductTagMatcherTests.LowercaseLineliffMatches),
-        new ZortProductTagMatcherTests().LowercaseLineliffMatches)
+        new ZortProductTagMatcherTests().LowercaseLineliffMatches),
+    (nameof(ProductDetailPriceResolverTests.AppliesActiveFlashSaleDisplayPrice),
+        new ProductDetailPriceResolverTests().AppliesActiveFlashSaleDisplayPrice),
+    (nameof(ProductDetailPriceResolverTests.UsesBasePriceWhenFlashSaleIsInactive),
+        new ProductDetailPriceResolverTests().UsesBasePriceWhenFlashSaleIsInactive),
+    (nameof(ProductDetailPriceResolverTests.ResolvesManyProductsWithOneActiveFlashSale),
+        new ProductDetailPriceResolverTests().ResolvesManyProductsWithOneActiveFlashSale)
 };
 foreach (var test in unitTests)
 {
@@ -46,7 +52,7 @@ var productId = Guid.NewGuid();
 var sale = FlashSale.Create(
     $"Concurrency {Guid.NewGuid():N}", DateOnly.FromDateTime(DateTime.UtcNow),
     DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)), [],
-    [(productId, 10m, 5)], DateTime.UtcNow);
+    [(productId, 10m, 5)], DateTime.UtcNow, true);
 await using (var setup = new CatalogDbContext(options))
 {
     setup.FlashSales.Add(sale);

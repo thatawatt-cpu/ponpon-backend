@@ -24,6 +24,10 @@ public sealed class GetMyOrderByIdHandler
         var order = await _orders.GetCustomerOrderByIdAsync(query.Id, customerId, cancellationToken)
             ?? throw new NotFoundException("Order was not found.");
 
+        var reviewIdsByOrderItem = await _orders.GetReviewIdsByOrderItemIdsAsync(
+            order.Items.Select(x => x.Id).ToArray(),
+            cancellationToken);
+
         return new MyOrderDetailResponse(
             order.Id,
             order.Number,
@@ -41,6 +45,7 @@ public sealed class GetMyOrderByIdHandler
             order.TrackingNo,
             order.OrderDate,
             order.ShippingDate,
+            order.ReceivedAtUtc,
             order.Reference,
             order.Description,
             order.IsCod,
@@ -63,6 +68,8 @@ public sealed class GetMyOrderByIdHandler
                 x.DiscountAmount,
                 x.TotalPrice,
                 x.ImageUrl,
+                reviewIdsByOrderItem.GetValueOrDefault(x.Id),
+                reviewIdsByOrderItem.ContainsKey(x.Id),
                 x.OptionsJson is not null
                     ? JsonSerializer.Deserialize<MyOrderItemOptionResponse[]>(x.OptionsJson) ?? []
                     : [])).ToArray(),

@@ -4,6 +4,7 @@ public sealed record CreateFlashSaleRequest(
     string Name,
     DateOnly StartDate,
     DateOnly EndDate,
+    bool IsActive,
     string[] Slots,
     IReadOnlyList<FlashSaleProductRequest> Products);
 

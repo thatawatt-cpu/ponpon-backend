@@ -1,5 +1,7 @@
 ﻿using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
 using PonPon.Modules.Catalog.Application.Abstractions;
+using PonPon.Modules.Catalog.Application.Features.Products;
 using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Catalog.Application.Features.Products.GetProductById;
@@ -7,18 +9,40 @@ namespace PonPon.Modules.Catalog.Application.Features.Products.GetProductById;
 public sealed class GetProductByIdHandler
 {
     private readonly IProductRepository _products;
+    private readonly PonPon.Shared.Application.Abstractions.IProductSalesReadService _sales;
+    private readonly ProductDetailPriceResolver _priceResolver;
+    private readonly IMemoryCache _cache;
 
-    public GetProductByIdHandler(IProductRepository products) => _products = products;
+    public GetProductByIdHandler(IProductRepository products, PonPon.Shared.Application.Abstractions.IProductSalesReadService sales, ProductDetailPriceResolver priceResolver, IMemoryCache cache)
+    {
+        _products = products;
+        _sales = sales;
+        _priceResolver = priceResolver;
+        _cache = cache;
+    }
 
     public async Task<ProductDetailResponse> HandleAsync(GetProductByIdQuery query, CancellationToken cancellationToken = default)
     {
+        var cacheKey = $"catalog:product-detail:id:{query.Id:N}:{query.IncludeInactive}";
+        if (_cache.TryGetValue(cacheKey, out ProductDetailResponse? cached)
+            && cached is not null)
+        {
+            return cached;
+        }
+
         var product = await _products.GetByIdWithVariantsAndImagesAsync(query.Id, cancellationToken) ?? throw new NotFoundException("Product was not found.");
         if (!query.IncludeInactive && !product.IsVisibleToCustomer)
         {
             throw new NotFoundException("Product was not found.");
         }
 
-        return new ProductDetailResponse(
+        var soldCountsTask = _sales.GetSoldCountsAsync([product.Id], cancellationToken);
+        var priceTask = _priceResolver.ResolveAsync(product, cancellationToken);
+        await Task.WhenAll(soldCountsTask, priceTask);
+        var soldCounts = await soldCountsTask;
+        var price = await priceTask;
+
+        var response = new ProductDetailResponse(
             product.Id,
             product.ZortProductId,
             product.ProductType,
@@ -32,6 +56,7 @@ public sealed class GetProductByIdHandler
             product.PurchaseVatStatus,
             product.Stock,
             product.AvailableStock,
+            soldCounts.GetValueOrDefault(product.Id),
             product.UnitText,
             product.ImageUrl,
             product.Weight,
@@ -50,6 +75,10 @@ public sealed class GetProductByIdHandler
             product.IsOnHomepage,
             product.Slug,
             product.OriginalPrice,
+            price.DisplayPrice,
+            price.DisplayOriginalPrice,
+            price.PriceSource,
+            price.ActiveFlashSaleId,
             product.PromotionBadge,
             product.Highlights,
             product.RichDescription,
@@ -75,5 +104,14 @@ public sealed class GetProductByIdHandler
                 x.OptionsJson is not null
                     ? JsonSerializer.Deserialize<ProductVariantOptionResponse[]>(x.OptionsJson) ?? []
                     : [])).ToArray());
+        _cache.Set(cacheKey, response, ProductDetailCacheOptions);
+        return response;
     }
+
+    private static readonly MemoryCacheEntryOptions ProductDetailCacheOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(20),
+        SlidingExpiration = TimeSpan.FromSeconds(10),
+        Size = 1
+    };
 }

@@ -13,15 +13,18 @@ public sealed class LineOrderCancellationNotifier : IOrderCancellationNotifier
 
     private readonly HttpClient _httpClient;
     private readonly LineNotificationOptions _options;
+    private readonly IRuntimeSettingProvider _settings;
     private readonly ILogger<LineOrderCancellationNotifier> _logger;
 
     public LineOrderCancellationNotifier(
         HttpClient httpClient,
         IOptions<LineNotificationOptions> options,
+        IRuntimeSettingProvider settings,
         ILogger<LineOrderCancellationNotifier> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -51,20 +54,21 @@ public sealed class LineOrderCancellationNotifier : IOrderCancellationNotifier
 
     private async Task SendToAdminsAsync(string message, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_options.ChannelAccessToken)
-            || _options.AdminRecipientIds.Length == 0)
+        var lineSettings = await ResolveSettingsAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(lineSettings.ChannelAccessToken)
+            || lineSettings.AdminRecipientIds.Length == 0)
         {
             _logger.LogInformation(
                 "LINE admin cancellation notification skipped because Line:ChannelAccessToken or Line:AdminRecipientIds is not configured.");
             return;
         }
 
-        foreach (var recipientId in _options.AdminRecipientIds.Select(x => x.Trim()).Where(x => x.Length > 0))
+        foreach (var recipientId in lineSettings.AdminRecipientIds.Select(x => x.Trim()).Where(x => x.Length > 0))
         {
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, PushEndpoint);
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ChannelAccessToken);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", lineSettings.ChannelAccessToken);
                 request.Content = JsonContent.Create(new
                 {
                     to = recipientId,
@@ -101,6 +105,25 @@ public sealed class LineOrderCancellationNotifier : IOrderCancellationNotifier
             }
         }
     }
+
+    private async Task<ResolvedLineAdminSettings> ResolveSettingsAsync(CancellationToken cancellationToken)
+    {
+        var settings = await _settings.GetGroupAsync("Line", cancellationToken);
+        var recipientIds = Get(settings, "AdminRecipientIds", null);
+        return new ResolvedLineAdminSettings(
+            Get(settings, "ChannelAccessToken", _options.ChannelAccessToken) ?? string.Empty,
+            string.IsNullOrWhiteSpace(recipientIds)
+                ? _options.AdminRecipientIds
+                : recipientIds
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    private static string? Get(IReadOnlyDictionary<string, string?> settings, string key, string? fallback)
+        => settings.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : fallback;
+
+    private sealed record ResolvedLineAdminSettings(string ChannelAccessToken, string[] AdminRecipientIds);
 
     private static string BuildMessage(
         string title,

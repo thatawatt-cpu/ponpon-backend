@@ -11,6 +11,7 @@ public sealed class PromotionDbContext : DbContext
 
     public DbSet<Coupon> Coupons => Set<Coupon>();
     public DbSet<CouponCampaign> CouponCampaigns => Set<CouponCampaign>();
+    public DbSet<CouponClaim> CouponClaims => Set<CouponClaim>();
     public DbSet<CouponUsage> CouponUsages => Set<CouponUsage>();
     public DbSet<CouponAuditLog> CouponAuditLogs => Set<CouponAuditLog>();
     public DbSet<CouponBulkGenerationJob> CouponBulkGenerationJobs => Set<CouponBulkGenerationJob>();
@@ -35,6 +36,8 @@ public sealed class PromotionDbContext : DbContext
             b.ToTable("coupons");
             b.HasKey(x => x.Id);
             b.Property(x => x.Code).HasMaxLength(64).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(2000);
             b.Property(x => x.Type).HasMaxLength(32).IsRequired();
             b.Property(x => x.Value).HasPrecision(18, 2);
             b.Property(x => x.MinimumSubtotal).HasPrecision(18, 2);
@@ -61,6 +64,15 @@ public sealed class PromotionDbContext : DbContext
             b.HasIndex(x => x.VariantId);
             b.HasIndex(x => x.Sku);
             b.HasIndex(x => x.ZortCategoryId);
+        });
+        modelBuilder.Entity<CouponClaim>(b =>
+        {
+            b.ToTable("coupon_claims");
+            b.HasKey(x => x.Id);
+            b.HasIndex(x => new { x.CouponId, x.CustomerId }).IsUnique();
+            b.HasIndex(x => x.CustomerId);
+            b.HasIndex(x => x.ClaimedAtUtc);
+            b.HasOne<Coupon>().WithMany().HasForeignKey(x => x.CouponId).OnDelete(DeleteBehavior.Cascade);
         });
         modelBuilder.Entity<CouponCustomerScope>(b =>
         {

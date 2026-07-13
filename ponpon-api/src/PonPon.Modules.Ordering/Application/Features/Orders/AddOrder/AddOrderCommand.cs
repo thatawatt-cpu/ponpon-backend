@@ -2,6 +2,7 @@ namespace PonPon.Modules.Ordering.Application.Features.Orders.AddOrder;
 
 public sealed record AddOrderCommand(
     Guid ClientRequestId,
+    Guid QuoteId,
     string CustomerName,
     string? CustomerEmail,
     string CustomerPhone,

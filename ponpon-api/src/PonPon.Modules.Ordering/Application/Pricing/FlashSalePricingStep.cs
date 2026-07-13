@@ -22,9 +22,9 @@ public sealed class FlashSalePricingStep : IPricingStep
             bangkok);
         var today = DateOnly.FromDateTime(localNow);
         var nowTime = TimeOnly.FromDateTime(localNow);
+        var productIds = context.Lines.Select(x => x.Input.ProductId).Distinct().ToArray();
 
-        var flashSale = (await _flashSales.GetAllAsync(cancellationToken))
-            .Where(x => x.StartDate <= today && today <= x.EndDate)
+        var flashSale = (await _flashSales.GetActiveForProductsAsync(today, productIds, cancellationToken))
             .Where(x => IsWithinSlot(x.Slots, nowTime))
             .OrderByDescending(x => x.StartDate)
             .FirstOrDefault();

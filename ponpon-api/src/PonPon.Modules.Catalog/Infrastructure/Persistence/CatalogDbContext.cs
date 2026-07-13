@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using PonPon.Modules.Catalog.Domain.Categories;
+using PonPon.Modules.Catalog.Domain.CustomerEngagement;
 using PonPon.Modules.Catalog.Domain.FlashSales;
 using PonPon.Modules.Catalog.Domain.HomeSlides;
 using PonPon.Modules.Catalog.Domain.Products;
@@ -26,6 +27,8 @@ public sealed class CatalogDbContext : DbContext
     public DbSet<HomeSlide> HomeSlides => Set<HomeSlide>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
     public DbSet<ProductSyncRun> ProductSyncRuns => Set<ProductSyncRun>();
+    public DbSet<CustomerWishlistItem> CustomerWishlistItems => Set<CustomerWishlistItem>();
+    public DbSet<CustomerRecentlyViewedProduct> CustomerRecentlyViewedProducts => Set<CustomerRecentlyViewedProduct>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

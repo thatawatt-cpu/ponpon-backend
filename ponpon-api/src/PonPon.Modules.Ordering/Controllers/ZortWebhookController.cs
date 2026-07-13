@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PonPon.Modules.Ordering.Application.Features.Orders.HandleZortWebhook;
@@ -28,6 +29,7 @@ public sealed class ZortWebhookController : ControllerBase
         [FromServices] IOptions<ZortOrderOptions> options,
         [FromServices] IBackgroundTaskQueue queue,
         [FromServices] ILogger<ZortWebhookController> logger,
+        [FromServices] IHostApplicationLifetime applicationLifetime,
         CancellationToken cancellationToken)
     {
         var effectiveMethod = string.IsNullOrWhiteSpace(method) ? "UPDATEORDER" : method;
@@ -44,7 +46,21 @@ public sealed class ZortWebhookController : ControllerBase
             return Ok();
         }
 
-        var payload = await ReadPayloadAsync(id ?? orderid, status, paymentstatus, cancellationToken);
+        ZortWebhookPayload payload;
+        try
+        {
+            payload = await ReadPayloadAsync(
+                id ?? orderid,
+                status,
+                paymentstatus,
+                applicationLifetime.ApplicationStopping);
+        }
+        catch (OperationCanceledException) when (!applicationLifetime.ApplicationStopping.IsCancellationRequested)
+        {
+            logger.LogInformation("Zort webhook request was canceled while reading payload. Method={Method}", effectiveMethod);
+            return Ok();
+        }
+
         if (payload.ZortOrderId is null)
         {
             logger.LogWarning("Zort webhook {Method}: could not determine order ID", effectiveMethod);

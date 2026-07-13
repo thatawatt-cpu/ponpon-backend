@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using PonPon.Modules.Payment.Application.Abstractions;
+using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Payment.Infrastructure.ExternalServices.Omise;
@@ -10,13 +11,18 @@ namespace PonPon.Modules.Payment.Infrastructure.ExternalServices.Omise;
 public sealed class OmiseClient : IOmiseClient
 {
     private readonly HttpClient _httpClient;
+    private readonly OmiseOptions _options;
+    private readonly IRuntimeSettingProvider _settings;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public OmiseClient(HttpClient httpClient, IOptions<OmiseOptions> options)
+    public OmiseClient(
+        HttpClient httpClient,
+        IOptions<OmiseOptions> options,
+        IRuntimeSettingProvider settings)
     {
-        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{options.Value.SecretKey}:"));
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
         _httpClient = httpClient;
+        _options = options.Value;
+        _settings = settings;
     }
 
     public Task<OmiseChargeResult> CreatePromptPayChargeAsync(int amount, string currency, string? description, CancellationToken cancellationToken)
@@ -68,7 +74,8 @@ public sealed class OmiseClient : IOmiseClient
 
     public async Task<OmiseChargeResult> GetChargeAsync(string chargeId, CancellationToken cancellationToken)
     {
-        var response = await _httpClient.GetAsync($"charges/{chargeId}", cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Get, $"charges/{chargeId}", cancellationToken);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
         var charge = await ReadChargeAsync(response, cancellationToken);
         return MapResult(charge);
     }
@@ -92,7 +99,8 @@ public sealed class OmiseClient : IOmiseClient
             + $"&query={Uri.EscapeDataString(orderNumber)}"
             + "&order=reverse_chronological"
             + "&per_page=100";
-        using var response = await _httpClient.GetAsync(path, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Get, path, cancellationToken);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!response.IsSuccessStatusCode)
@@ -128,10 +136,12 @@ public sealed class OmiseClient : IOmiseClient
             ["metadata[order_number]"] = orderNumber
         };
 
-        using var response = await _httpClient.PostAsync(
+        using var request = await CreateRequestAsync(
+            HttpMethod.Post,
             $"charges/{Uri.EscapeDataString(chargeId)}/refunds",
-            new FormUrlEncodedContent(form),
             cancellationToken);
+        request.Content = new FormUrlEncodedContent(form);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!response.IsSuccessStatusCode)
@@ -162,9 +172,27 @@ public sealed class OmiseClient : IOmiseClient
 
     private async Task<OmiseChargeResult> PostChargeAsync(Dictionary<string, string> form, CancellationToken cancellationToken)
     {
-        var response = await _httpClient.PostAsync("charges", new FormUrlEncodedContent(form), cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Post, "charges", cancellationToken);
+        request.Content = new FormUrlEncodedContent(form);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
         var charge = await ReadChargeAsync(response, cancellationToken);
         return MapResult(charge);
+    }
+
+    private async Task<HttpRequestMessage> CreateRequestAsync(
+        HttpMethod method,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var secretKey = await _settings.GetValueAsync("Omise", "SecretKey", cancellationToken)
+            ?? _options.SecretKey;
+        if (string.IsNullOrWhiteSpace(secretKey))
+            throw new BadRequestException("Omise secret key is not configured.");
+
+        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{secretKey}:"));
+        var request = new HttpRequestMessage(method, path);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+        return request;
     }
 
     private async Task<OmiseChargeDto> ReadChargeAsync(HttpResponseMessage response, CancellationToken cancellationToken)

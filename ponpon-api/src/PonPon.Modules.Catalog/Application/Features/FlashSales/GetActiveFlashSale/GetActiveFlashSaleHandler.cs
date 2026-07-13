@@ -19,16 +19,33 @@ public sealed class GetActiveFlashSaleHandler
 
     public async Task<FlashSaleResponse?> HandleAsync(CancellationToken cancellationToken = default)
     {
-        var today = DateOnly.FromDateTime(_clock.UtcNow);
-        var flashSale = await _flashSales.GetActiveAsync(today, cancellationToken);
+        var localNow = GetFlashSalesHandler.GetBangkokNow(_clock.UtcNow);
+        var activeFlashSales = (await _flashSales.GetAllAsync(cancellationToken))
+            .Where(x => GetFlashSalesHandler.IsActiveNow(x, localNow))
+            .OrderByDescending(x => x.StartDate)
+            .ToArray();
 
-        if (flashSale is null)
+        if (activeFlashSales.Length == 0)
             return null;
 
-        var productIds = flashSale.Products.Select(x => x.ProductId).ToHashSet();
+        var productIds = activeFlashSales.SelectMany(x => x.Products).Select(x => x.ProductId).ToHashSet();
         var products = await _products.GetByIdsAsync(productIds, cancellationToken);
-        var productMap = products.ToDictionary(x => x.Id);
+        var visibleProductMap = products
+            .Where(x => x.IsVisibleToCustomer)
+            .ToDictionary(x => x.Id);
+        var visibleProductIds = visibleProductMap.Keys.ToHashSet();
 
-        return GetFlashSalesHandler.MapToResponse(flashSale, today, productMap);
+        foreach (var flashSale in activeFlashSales)
+        {
+            var response = GetFlashSalesHandler.MapToResponse(
+                flashSale,
+                localNow,
+                visibleProductMap,
+                visibleProductIds);
+            if (response.Products.Count > 0)
+                return response;
+        }
+
+        return null;
     }
 }

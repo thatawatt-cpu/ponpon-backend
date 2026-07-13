@@ -90,6 +90,17 @@ public sealed class HandleShippopWebhookHandler
                 eventDateTime,
                 cancellationToken);
         }
+        else if (statusApplied
+                 && shipment.OrderId is null
+                 && ShippopOrderStatusPolicy.TryGetOrderProgress(command.OrderStatus, out var mappedProgress))
+        {
+            _logger.LogWarning(
+                "SHIPPOP webhook mapped to order progress but shipment has no OrderId; LINE notification cannot be sent. TrackingCode={TrackingCode} CourierTrackingCode={CourierTrackingCode} OrderStatus={OrderStatus} Progress={Progress}",
+                command.TrackingCode,
+                command.CourierTrackingCode,
+                command.OrderStatus,
+                mappedProgress);
+        }
 
         if (ShippopOrderStatusPolicy.IsProblemStatus(command.OrderStatus))
         {

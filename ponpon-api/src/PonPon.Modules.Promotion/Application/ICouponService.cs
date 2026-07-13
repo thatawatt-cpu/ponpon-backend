@@ -35,6 +35,8 @@ public sealed record CouponBulkGenerateInput(
     string? ActorUserType = null);
 
 public sealed record CouponTemplateInput(
+    string? Name,
+    string? Description,
     string Type,
     decimal Value,
     decimal MinimumSubtotal,

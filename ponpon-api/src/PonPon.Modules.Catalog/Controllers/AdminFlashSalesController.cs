@@ -31,6 +31,7 @@ public sealed class AdminFlashSalesController : ControllerBase
             request.Name,
             request.StartDate,
             request.EndDate,
+            request.IsActive,
             request.Slots,
             request.Products.Select(p => (p.ProductId, p.SalePrice, p.QuantityLimit)).ToArray());
 
@@ -46,6 +47,7 @@ public sealed class AdminFlashSalesController : ControllerBase
             request.Name,
             request.StartDate,
             request.EndDate,
+            request.IsActive,
             request.Slots,
             request.Products.Select(p => (p.ProductId, p.SalePrice, p.QuantityLimit)).ToArray());
 

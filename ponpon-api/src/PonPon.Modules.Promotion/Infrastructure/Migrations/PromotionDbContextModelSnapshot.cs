@@ -49,6 +49,10 @@ namespace PonPon.Modules.Promotion.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<DateTime?>("EndsAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -68,6 +72,11 @@ namespace PonPon.Modules.Promotion.Infrastructure.Migrations
                     b.Property<decimal>("MinimumSubtotal")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<DateTime?>("StartsAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -139,6 +148,33 @@ namespace PonPon.Modules.Promotion.Infrastructure.Migrations
                     b.HasIndex("CreatedAtUtc");
 
                     b.ToTable("coupon_audit_logs", "promotion");
+                });
+
+            modelBuilder.Entity("PonPon.Modules.Promotion.Domain.CouponClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ClaimedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CouponId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClaimedAtUtc");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("CouponId", "CustomerId")
+                        .IsUnique();
+
+                    b.ToTable("coupon_claims", "promotion");
                 });
 
             modelBuilder.Entity("PonPon.Modules.Promotion.Domain.CouponBulkGenerationJob", b =>
@@ -274,6 +310,15 @@ namespace PonPon.Modules.Promotion.Infrastructure.Migrations
                     b.HasIndex("Type", "Value");
 
                     b.ToTable("coupon_conditions", "promotion");
+                });
+
+            modelBuilder.Entity("PonPon.Modules.Promotion.Domain.CouponClaim", b =>
+                {
+                    b.HasOne("PonPon.Modules.Promotion.Domain.Coupon", null)
+                        .WithMany()
+                        .HasForeignKey("CouponId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PonPon.Modules.Promotion.Domain.CouponCustomerScope", b =>

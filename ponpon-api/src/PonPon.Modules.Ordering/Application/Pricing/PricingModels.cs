@@ -47,6 +47,7 @@ public sealed record AppliedPromotion(
 public sealed record AppliedCoupon(
     Guid CouponId,
     string Code,
+    string Name,
     string Type,
     decimal DiscountAmount);
 

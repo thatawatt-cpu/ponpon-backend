@@ -17,6 +17,7 @@
     <ProjectReference Include="..\PonPon.Modules.Catalog\PonPon.Modules.Catalog.csproj" />
     <ProjectReference Include="..\PonPon.Modules.Ordering\PonPon.Modules.Ordering.csproj" />
     <ProjectReference Include="..\PonPon.Modules.Payment\PonPon.Modules.Payment.csproj" />
+    <ProjectReference Include="..\PonPon.Modules.Reviews\PonPon.Modules.Reviews.csproj" />
     <ProjectReference Include="..\PonPon.Modules.Settings\PonPon.Modules.Settings.csproj" />
     <ProjectReference Include="..\PonPon.Modules.Shipping\PonPon.Modules.Shipping.csproj" />
   </ItemGroup>

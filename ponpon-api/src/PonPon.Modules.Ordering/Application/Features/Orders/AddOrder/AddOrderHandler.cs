@@ -1,8 +1,7 @@
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Catalog.Domain.Products;
+using PonPon.Modules.Ordering.Application.Features.Orders.CheckoutPricing;
 using PonPon.Modules.Ordering.Application.Features.Orders.SyncPendingOrderToZort;
 using PonPon.Modules.Ordering.Application.Features.Orders.SyncOrdersFromZort;
 using PonPon.Modules.Ordering.Application.Abstractions;
@@ -12,23 +11,22 @@ using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
 using PonPon.Modules.Ordering.Application.Pricing;
 using PonPon.Modules.Promotion.Application;
+using System.Globalization;
+using System.Text.Json;
 
 namespace PonPon.Modules.Ordering.Application.Features.Orders.AddOrder;
 
 public sealed class AddOrderHandler
 {
-    private static readonly Guid DevCustomerId = new("77e02c7d-9578-47e8-bd07-e4e336e1e1c9");
-
     private readonly IOrderRepository _orders;
     private readonly IOrderingUnitOfWork _unitOfWork;
     private readonly IProductRepository _products;
     private readonly IBackgroundTaskQueue _backgroundQueue;
     private readonly ICurrentUser _currentUser;
     private readonly IShopRealtimeNotificationService _shopRealtimeNotifications;
-    private readonly IShippingRateQuoteService _shippingRates;
     private readonly IDateTimeProvider _clock;
-    private readonly IWebHostEnvironment _env;
-    private readonly PricingPipeline _pricingPipeline;
+    private readonly CheckoutPricingQuoteService _quoteService;
+    private readonly ICheckoutQuoteRepository _quotes;
     private readonly ICouponService _coupons;
     private readonly IPromotionService _promotions;
     private readonly IFlashSaleRepository _flashSales;
@@ -40,13 +38,12 @@ public sealed class AddOrderHandler
         IBackgroundTaskQueue backgroundQueue,
         ICurrentUser currentUser,
         IShopRealtimeNotificationService shopRealtimeNotifications,
-        IShippingRateQuoteService shippingRates,
-        PricingPipeline pricingPipeline,
+        CheckoutPricingQuoteService quoteService,
+        ICheckoutQuoteRepository quotes,
         ICouponService coupons,
         IPromotionService promotions,
         IFlashSaleRepository flashSales,
-        IDateTimeProvider clock,
-        IWebHostEnvironment env)
+        IDateTimeProvider clock)
     {
         _orders = orders;
         _unitOfWork = unitOfWork;
@@ -54,13 +51,12 @@ public sealed class AddOrderHandler
         _backgroundQueue = backgroundQueue;
         _currentUser = currentUser;
         _shopRealtimeNotifications = shopRealtimeNotifications;
-        _shippingRates = shippingRates;
-        _pricingPipeline = pricingPipeline;
+        _quoteService = quoteService;
+        _quotes = quotes;
         _coupons = coupons;
         _promotions = promotions;
         _flashSales = flashSales;
         _clock = clock;
-        _env = env;
     }
 
     public async Task<AddOrderResponse> HandleAsync(
@@ -69,6 +65,9 @@ public sealed class AddOrderHandler
     {
         var customerId = GetCustomerId();
         Validate(command);
+        await using var clientRequestLock = await _orders.AcquireClientRequestLockAsync(
+            command.ClientRequestId,
+            cancellationToken);
         var zortOrderId = CreateTemporaryZortOrderId(command.ClientRequestId);
         var existingOrder = await _orders.GetByZortOrderIdAsync(zortOrderId, cancellationToken);
         if (existingOrder is not null)
@@ -76,6 +75,7 @@ public sealed class AddOrderHandler
             if (existingOrder.CustomerId != customerId)
                 throw new BadRequestException("ClientRequestId has already been used.");
 
+            await clientRequestLock.CompleteAsync(cancellationToken);
             return ToResponse(existingOrder);
         }
 
@@ -87,11 +87,6 @@ public sealed class AddOrderHandler
         var zortItems = new List<ZortAddOrderItemRequest>(requestedItems.Length);
         var catalogDataBySku = new Dictionary<string, (Guid ProductId, Guid VariantId, string? ImageUrl, string? OptionsJson)>();
         var stockToDecrement = new Dictionary<Guid, int>();
-        var pricingLines = new List<PricingLineInput>(requestedItems.Length);
-        decimal totalWeightGrams = 0;
-        decimal maxWidth = 0;
-        decimal maxLength = 0;
-        decimal maxHeight = 0;
 
         foreach (var requestedItem in requestedItems)
         {
@@ -112,20 +107,6 @@ public sealed class AddOrderHandler
             catalogDataBySku[variant.Sku] = (product.Id, variant.Id, variant.ImageUrl, variant.OptionsJson);
             stockToDecrement[variant.Id] = requestedItem.Quantity;
 
-            if (product.Weight is null or <= 0
-                || product.Width is null or <= 0
-                || product.Length is null or <= 0
-                || product.Height is null or <= 0)
-            {
-                throw new BadRequestException(
-                    $"Product {product.Name} is missing weight or parcel dimensions.");
-            }
-
-            totalWeightGrams += product.Weight.Value * requestedItem.Quantity;
-            maxWidth = Math.Max(maxWidth, product.Width.Value);
-            maxLength = Math.Max(maxLength, product.Length.Value);
-            maxHeight = Math.Max(maxHeight, product.Height.Value);
-
             zortItems.Add(new ZortAddOrderItemRequest(
                 variant.Sku,
                 product.Name,
@@ -133,59 +114,25 @@ public sealed class AddOrderHandler
                 variant.SellPrice,
                 0,
                 variant.SellPrice * requestedItem.Quantity));
-            pricingLines.Add(new PricingLineInput(
-                product.Id,
-                variant.Id,
-                variant.Sku,
-                product.Name,
-                requestedItem.Quantity,
-                variant.SellPrice,
-                variant.SellVatStatus,
-                variant.ImageUrl,
-                variant.OptionsJson,
-                product.ZortCategoryId,
-                product.CategoryName,
-                product.ZortSubCategoryId,
-                product.SubCategoryName));
         }
 
-        var shippingAddress = ParseShippingAddress(command.ShippingAddress)
-            ?? throw new BadRequestException(
-                "ShippingAddress must end with district, state, province, and postcode.");
         var shippingChannel = command.ShippingChannel?.Trim();
         if (string.IsNullOrWhiteSpace(shippingChannel))
             throw new BadRequestException("ShippingChannel is required.");
 
-        var shippingAmount = await _shippingRates.GetShippingAmountAsync(
-            new ShippingRateQuoteRequest(
-                command.ShippingName.Trim(),
-                command.ShippingPhone.Trim(),
-                EmptyToNull(command.CustomerEmail),
-                shippingAddress.Address,
-                shippingAddress.District,
-                shippingAddress.State,
-                shippingAddress.Province,
-                shippingAddress.Postcode,
-                $"Order {command.ClientRequestId:N}",
-                (double)(totalWeightGrams / 1000m),
-                (double)maxWidth,
-                (double)maxLength,
-                (double)maxHeight,
-                shippingChannel),
-            cancellationToken);
-
-        var pricing = await _pricingPipeline.ExecuteAsync(
-            new PricingContext(
-                pricingLines,
-                shippingAmount,
-                command.CouponCode,
-                _clock.UtcNow,
-                customerId,
-                SyncOrdersFromZortHandler.LineLiffSalesChannel,
-                command.PaymentMethod,
+        var payloadHash = await _quoteService.CalculatePayloadHashAsync(
+            new CheckoutPricingPayload(
+                command.CustomerEmail,
+                command.ShippingName,
+                command.ShippingPhone,
+                command.ShippingAddress,
                 shippingChannel,
+                command.CouponCode,
+                requestedItems.Select(x => new CheckoutPricingItem(x.ProductId, x.VariantId, x.Quantity)).ToArray(),
                 command.CouponCodes),
             cancellationToken);
+        var quote = await ValidateQuoteAsync(command.QuoteId, customerId, payloadHash, cancellationToken);
+        var pricing = CreatePricingResultFromQuote(quote.PricingSnapshotJson, zortItems);
         zortItems = pricing.Lines
             .Select(x => new ZortAddOrderItemRequest(
                 x.Input.Sku,
@@ -195,7 +142,7 @@ public sealed class AddOrderHandler
                 x.DiscountAmount,
                 x.Total))
             .ToList();
-        var number = $"LIFF-{command.ClientRequestId:N}";
+        var number = CreateLineLiffOrderNumber(_clock.UtcNow, zortItems[0].Sku);
         var snapshot = CreatePendingSnapshot(
             zortOrderId,
             number,
@@ -234,7 +181,10 @@ public sealed class AddOrderHandler
             {
                 await _coupons.ReleaseByOrderAsync(order.Id, CancellationToken.None);
                 await _flashSales.ReleaseQuotaByOrderAsync(order.Id, _clock.UtcNow, CancellationToken.None);
-                throw new BadRequestException("Coupon quota is no longer available.");
+                throw new BadRequestException(
+                    "Coupon quota is no longer available.",
+                    "coupon_quota_no_longer_available",
+                    new { couponId = coupon.CouponId, couponCode = coupon.Code });
             }
         }
         foreach (var promotion in pricing.AppliedPromotions)
@@ -263,6 +213,7 @@ public sealed class AddOrderHandler
 
         order.MarkStockReserved(_clock.UtcNow);
         await _orders.AddAsync(order, cancellationToken);
+        quote.MarkUsed(command.ClientRequestId, _clock.UtcNow);
 
         order.AssignCustomer(customerId, _clock.UtcNow);
         order.SetPaymentExpiry(_clock.UtcNow.AddMinutes(30), _clock.UtcNow);
@@ -278,6 +229,7 @@ public sealed class AddOrderHandler
             await _flashSales.ReleaseQuotaByOrderAsync(order.Id, _clock.UtcNow, CancellationToken.None);
             throw;
         }
+        await clientRequestLock.CompleteAsync(cancellationToken);
 
         _backgroundQueue.Enqueue(async (sp, ct) =>
         {
@@ -311,6 +263,125 @@ public sealed class AddOrderHandler
             order.PaymentExpiresAt);
     }
 
+    private async Task<PonPon.Modules.Ordering.Domain.Quotes.CheckoutQuote> ValidateQuoteAsync(
+        Guid quoteId,
+        Guid customerId,
+        CheckoutPricingPayloadHash payloadHash,
+        CancellationToken cancellationToken)
+    {
+        var quote = await _quotes.GetByIdAsync(quoteId, cancellationToken)
+            ?? throw QuoteError(
+                "Quote was not found.",
+                "quote_not_found",
+                new { quoteId });
+
+        if (quote.CustomerId != customerId)
+            throw QuoteError(
+                "Quote does not belong to this customer.",
+                "quote_customer_mismatch",
+                new { quoteId });
+
+        if (quote.ExpiresAtUtc <= _clock.UtcNow)
+            throw QuoteError(
+                "Quote has expired.",
+                "quote_expired",
+                new { quoteId, quote.ExpiresAtUtc });
+
+        if (!quote.IsFinal || !quote.ShippingFinalized)
+            throw QuoteError(
+                "Quote is not final.",
+                "quote_not_final",
+                new
+                {
+                    quoteId,
+                    quote.IsFinal,
+                    quote.ShippingFinalized,
+                    quote.CalculationStatus
+                });
+
+        if (!payloadHash.IsFinal || !payloadHash.ShippingFinalized)
+            throw QuoteError(
+                "Checkout payload does not have finalized shipping.",
+                "quote_shipping_not_finalized",
+                new
+                {
+                    quoteId,
+                    payloadHash.IsFinal,
+                    payloadHash.ShippingFinalized,
+                    payloadHash.CalculationStatus
+                });
+
+        if (!string.Equals(quote.PayloadHash, payloadHash.PayloadHash, StringComparison.Ordinal))
+            throw QuoteError(
+                "Quote no longer matches the checkout payload.",
+                "quote_mismatch",
+                new
+                {
+                    quoteId,
+                    expectedCalculationStatus = quote.CalculationStatus,
+                    actualCalculationStatus = payloadHash.CalculationStatus
+                });
+
+        return quote;
+    }
+
+    private static BadRequestException QuoteError(string message, string code, object details)
+        => new(message, code, details);
+
+    private static PricingResult CreatePricingResultFromQuote(
+        string pricingSnapshotJson,
+        IReadOnlyCollection<ZortAddOrderItemRequest> currentItems)
+    {
+        var snapshot = JsonSerializer.Deserialize<StoredPricingSnapshot>(pricingSnapshotJson)
+            ?? throw new BadRequestException("Quote pricing snapshot is invalid.", "quote_pricing_snapshot_invalid", new { });
+
+        var currentItemsBySku = currentItems.ToDictionary(x => x.Sku, StringComparer.OrdinalIgnoreCase);
+        var lines = snapshot.Lines.Select(line =>
+        {
+            if (!currentItemsBySku.TryGetValue(line.Sku, out var currentItem))
+                throw new BadRequestException(
+                    "Quote no longer matches the checkout payload.",
+                    "quote_mismatch",
+                    new { sku = line.Sku });
+
+            return new PricedLine(
+                new PricingLineInput(
+                    line.ProductId,
+                    line.VariantId,
+                    line.Sku,
+                    currentItem.Name,
+                    line.Quantity,
+                    line.BaseUnitPrice,
+                    line.SellVatStatus,
+                    null,
+                    null,
+                    line.ZortCategoryId,
+                    line.CategoryName,
+                    line.ZortSubCategoryId,
+                    line.SubCategoryName),
+                line.UnitPrice,
+                line.DiscountAmount,
+                line.Total);
+        }).ToArray();
+
+        return new PricingResult(
+            lines,
+            snapshot.ItemSubtotal,
+            snapshot.ShippingAmount,
+            snapshot.ShippingDiscountAmount,
+            snapshot.OrderDiscountAmount,
+            snapshot.OrderDiscountAmount - snapshot.PromotionDiscountAmount,
+            snapshot.PromotionDiscountAmount,
+            snapshot.AppliedCouponId,
+            snapshot.AppliedCoupons,
+            snapshot.AppliedFlashSaleId,
+            snapshot.AppliedPromotions,
+            snapshot.VatAmount,
+            snapshot.GrandTotal,
+            snapshot.Adjustments,
+            pricingSnapshotJson);
+    }
+
     private Guid GetCustomerId()
     {
         if (_currentUser.IsAuthenticated
@@ -318,11 +389,6 @@ public sealed class AddOrderHandler
             && _currentUser.CustomerId is Guid customerId)
         {
             return customerId;
-        }
-
-        if (_env.IsDevelopment())
-        {
-            return DevCustomerId;
         }
 
         throw new UnauthorizedException("Customer authentication is required.");
@@ -336,11 +402,40 @@ public sealed class AddOrderHandler
         return -Math.Max(1, value);
     }
 
+    private static string CreateLineLiffOrderNumber(DateTime utcNow, string sku)
+    {
+        var bangkokNow = TimeZoneInfo.ConvertTimeFromUtc(
+            DateTime.SpecifyKind(utcNow, DateTimeKind.Utc),
+            ResolveBangkokTimeZone());
+
+        return string.Concat(
+            "LLPP-",
+            bangkokNow.ToString("yyMMddHHmmss", CultureInfo.InvariantCulture),
+            sku.Trim());
+    }
+
+    private static TimeZoneInfo ResolveBangkokTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Bangkok");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        }
+    }
+
     private static void Validate(AddOrderCommand command)
     {
         if (command.ClientRequestId == Guid.Empty)
         {
             throw new BadRequestException("ClientRequestId is required.");
+        }
+
+        if (command.QuoteId == Guid.Empty)
+        {
+            throw new BadRequestException("QuoteId is required.", "quote_required", new { field = "quoteId" });
         }
 
         if (string.IsNullOrWhiteSpace(command.CustomerName)
@@ -496,4 +591,38 @@ public sealed class AddOrderHandler
             message,
             order.PaymentAmount > 0 ? order.PaymentAmount : order.Amount,
             status);
+
+    private sealed record StoredPricingSnapshot(
+        DateTime NowUtc,
+        string? SalesChannel,
+        string? PaymentMethod,
+        string? ShippingChannel,
+        IReadOnlyCollection<StoredPricingLine> Lines,
+        decimal ItemSubtotal,
+        decimal ShippingAmount,
+        decimal ShippingDiscountAmount,
+        decimal OrderDiscountAmount,
+        decimal PromotionDiscountAmount,
+        Guid? AppliedCouponId,
+        IReadOnlyCollection<AppliedCoupon> AppliedCoupons,
+        Guid? AppliedFlashSaleId,
+        IReadOnlyCollection<AppliedPromotion> AppliedPromotions,
+        decimal VatAmount,
+        decimal GrandTotal,
+        IReadOnlyCollection<PriceAdjustment> Adjustments);
+
+    private sealed record StoredPricingLine(
+        Guid ProductId,
+        Guid VariantId,
+        string Sku,
+        int Quantity,
+        decimal BaseUnitPrice,
+        decimal UnitPrice,
+        decimal DiscountAmount,
+        decimal Total,
+        int SellVatStatus,
+        long? ZortCategoryId,
+        string? CategoryName,
+        long? ZortSubCategoryId,
+        string? SubCategoryName);
 }

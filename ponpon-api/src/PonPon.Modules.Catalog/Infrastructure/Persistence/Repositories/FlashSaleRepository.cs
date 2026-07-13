@@ -35,6 +35,26 @@ public sealed class FlashSaleRepository : IFlashSaleRepository
             .FirstOrDefaultAsync(x => x.StartDate <= today && today <= x.EndDate, cancellationToken);
     }
 
+    public async Task<IReadOnlyCollection<FlashSale>> GetActiveForProductsAsync(
+        DateOnly today,
+        IReadOnlyCollection<Guid> productIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = productIds.Distinct().ToArray();
+        if (ids.Length == 0)
+            return [];
+
+        return await _dbContext.FlashSales
+            .AsNoTracking()
+            .Include(x => x.Products)
+            .Where(x => x.IsActive
+                        && x.StartDate <= today
+                        && today <= x.EndDate
+                        && x.Products.Any(p => ids.Contains(p.ProductId)))
+            .OrderByDescending(x => x.StartDate)
+            .ToArrayAsync(cancellationToken);
+    }
+
     public async Task AddAsync(FlashSale flashSale, CancellationToken cancellationToken = default)
     {
         await _dbContext.FlashSales.AddAsync(flashSale, cancellationToken);

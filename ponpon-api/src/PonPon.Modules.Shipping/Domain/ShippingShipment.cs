@@ -183,7 +183,9 @@ public sealed class ShippingShipment : AggregateRoot, IAuditableEntity
             "booking" or "cancel" or "invalid" or "rider_accept" => 1,
             "shipping" or "problem" => 2,
             "return_shipping" or "return_problem" => 3,
-            "complete" or "return" or "return_complete" or "return_return" or "return_close" => 4,
+            "complete" or "completed" or "success" or "successful" or "delivered" or "delivered_success" or
+                "delivery_success" or "finish" or "finished" or "return" or "return_complete" or "return_return" or
+                "return_close" => 4,
             "close" or "canceled" => 5,
             "package_detail" or "pending_transfer" or "transferred" => null,
             _ => 2

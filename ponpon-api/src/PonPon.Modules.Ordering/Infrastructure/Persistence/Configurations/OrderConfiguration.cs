@@ -49,10 +49,17 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.PricingSnapshotJson).HasColumnType("jsonb");
         builder.HasIndex(x => x.ZortOrderId).IsUnique();
         builder.HasIndex(x => x.CustomerId);
+        builder.HasIndex(x => new { x.CustomerId, x.OrderDate })
+            .HasDatabaseName("IX_orders_customer_order_date");
+        builder.HasIndex(x => new { x.CustomerId, x.PaymentStatus, x.Status })
+            .HasDatabaseName("IX_orders_customer_payment_status");
         builder.HasIndex(x => x.Number);
         builder.HasIndex(x => new { x.SalesChannel, x.OrderDate });
         builder.HasIndex(x => x.IntegrationCustomerId);
         builder.HasIndex(x => new { x.Status, x.PaymentStatus });
+        builder.HasIndex(x => x.DeliveredNotificationSentAtUtc)
+            .HasFilter("\"DeliveredNotificationSentAtUtc\" IS NOT NULL");
+        builder.HasIndex(x => x.ReceivedAtUtc).HasFilter("\"ReceivedAtUtc\" IS NOT NULL");
         builder.HasIndex(x => x.PaymentExpiresAt).HasFilter("\"PaymentExpiresAt\" IS NOT NULL");
         builder.HasIndex(x => x.OmiseChargeId)
             .IsUnique()

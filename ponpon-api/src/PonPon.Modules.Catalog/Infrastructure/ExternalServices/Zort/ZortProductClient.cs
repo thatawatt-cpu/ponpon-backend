@@ -2,6 +2,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using PonPon.Modules.Catalog.Application.Abstractions;
+using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Catalog.Infrastructure.ExternalServices.Zort;
@@ -11,18 +12,24 @@ public sealed class ZortProductClient : IZortProductClient
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true };
     private readonly HttpClient _httpClient;
     private readonly ZortOptions _options;
+    private readonly IRuntimeSettingProvider _settings;
 
-    public ZortProductClient(HttpClient httpClient, IOptions<ZortOptions> options)
+    public ZortProductClient(
+        HttpClient httpClient,
+        IOptions<ZortOptions> options,
+        IRuntimeSettingProvider settings)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _settings = settings;
     }
 
     public async Task<ZortGetWarehousesResponse> GetWarehousesAsync(int page = 1, int limit = 500, CancellationToken cancellationToken = default)
     {
-        EnsureConfigured();
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"Warehouse/GetWarehouses?page={page}&limit={limit}");
-        AddZortHeaders(request);
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
+        using var request = CreateRequest(HttpMethod.Get, $"Warehouse/GetWarehouses?page={page}&limit={limit}", options);
+        AddZortHeaders(request, options);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -42,9 +49,10 @@ public sealed class ZortProductClient : IZortProductClient
 
     public async Task<ZortGetCategoriesResponse> GetCategoriesAsync(CancellationToken cancellationToken = default)
     {
-        EnsureConfigured();
-        using var request = new HttpRequestMessage(HttpMethod.Get, "Product/GetCategorys");
-        AddZortHeaders(request);
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
+        using var request = CreateRequest(HttpMethod.Get, "Product/GetCategorys", options);
+        AddZortHeaders(request, options);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -55,9 +63,10 @@ public sealed class ZortProductClient : IZortProductClient
 
     public async Task<ZortGetProductsResponse> GetProductsAsync(int page, int limit, CancellationToken cancellationToken = default)
     {
-        EnsureConfigured();
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"Product/GetProducts?page={page}&limit={limit}");
-        AddZortHeaders(request);
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
+        using var request = CreateRequest(HttpMethod.Get, $"Product/GetProducts?page={page}&limit={limit}", options);
+        AddZortHeaders(request, options);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -68,9 +77,10 @@ public sealed class ZortProductClient : IZortProductClient
 
     public async Task<ZortProductDto> GetProductByIdAsync(long zortProductId, CancellationToken cancellationToken = default)
     {
-        EnsureConfigured();
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"Product/GetProductDetail?id={zortProductId}");
-        AddZortHeaders(request);
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
+        using var request = CreateRequest(HttpMethod.Get, $"Product/GetProductDetail?id={zortProductId}", options);
+        AddZortHeaders(request, options);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -98,9 +108,11 @@ public sealed class ZortProductClient : IZortProductClient
 
     private async Task<ZortApiResponse> PostStockPlaceholderAsync(string path, ZortStockUpdateRequest request, CancellationToken cancellationToken)
     {
-        EnsureConfigured();
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(request, options: JsonOptions) };
-        AddZortHeaders(httpRequest);
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
+        using var httpRequest = CreateRequest(HttpMethod.Post, path, options);
+        httpRequest.Content = JsonContent.Create(request, options: JsonOptions);
+        AddZortHeaders(httpRequest, options);
         using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
         var resCode = TryReadString(rawJson, "resCode");
@@ -110,20 +122,43 @@ public sealed class ZortProductClient : IZortProductClient
         return new ZortApiResponse(isSuccess, resCode, resDesc, rawJson);
     }
 
-    private void AddZortHeaders(HttpRequestMessage request)
+    private void AddZortHeaders(HttpRequestMessage request, ResolvedZortOptions options)
     {
-        request.Headers.TryAddWithoutValidation("storename", _options.StoreName);
-        request.Headers.TryAddWithoutValidation("apikey", _options.ApiKey);
-        request.Headers.TryAddWithoutValidation("apisecret", _options.ApiSecret);
+        request.Headers.TryAddWithoutValidation("storename", options.StoreName);
+        request.Headers.TryAddWithoutValidation("apikey", options.ApiKey);
+        request.Headers.TryAddWithoutValidation("apisecret", options.ApiSecret);
     }
 
-    private void EnsureConfigured()
+    private static void EnsureConfigured(ResolvedZortOptions options)
     {
-        if (string.IsNullOrWhiteSpace(_options.StoreName) || string.IsNullOrWhiteSpace(_options.ApiKey) || string.IsNullOrWhiteSpace(_options.ApiSecret))
+        if (string.IsNullOrWhiteSpace(options.BaseUrl)
+            || string.IsNullOrWhiteSpace(options.StoreName)
+            || string.IsNullOrWhiteSpace(options.ApiKey)
+            || string.IsNullOrWhiteSpace(options.ApiSecret))
         {
             throw new BadRequestException("ZORT credentials are not configured.");
         }
     }
+
+    private async Task<ResolvedZortOptions> ResolveOptionsAsync(CancellationToken cancellationToken)
+    {
+        var settings = await _settings.GetGroupAsync("Zort", cancellationToken);
+        return new ResolvedZortOptions(
+            Get(settings, "BaseUrl", _options.BaseUrl),
+            Get(settings, "StoreName", _options.StoreName),
+            Get(settings, "ApiKey", _options.ApiKey),
+            Get(settings, "ApiSecret", _options.ApiSecret));
+    }
+
+    private static HttpRequestMessage CreateRequest(HttpMethod method, string path, ResolvedZortOptions options)
+        => new(method, new Uri(new Uri(options.BaseUrl.TrimEnd('/') + "/"), path));
+
+    private static string Get(IReadOnlyDictionary<string, string?> settings, string key, string fallback)
+        => settings.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : fallback;
+
+    private sealed record ResolvedZortOptions(string BaseUrl, string StoreName, string ApiKey, string ApiSecret);
 
     private static ZortGetProductsResponse ParseGetProducts(string rawJson, int fallbackPage, int fallbackLimit)
     {

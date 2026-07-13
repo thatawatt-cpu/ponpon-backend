@@ -19,6 +19,7 @@ public sealed record MyOrderListItemResponse(
     string? ShippingChannel,
     string? TrackingNo,
     DateTime? OrderDate,
+    DateTime? ReceivedAtUtc,
     int ItemsCount,
     IReadOnlyCollection<MyOrderListItemPreviewResponse> ItemsPreview);
 
@@ -31,4 +32,6 @@ public sealed record MyOrderListItemPreviewResponse(
     int Quantity,
     decimal TotalPrice,
     string? ImageUrl,
+    Guid? ReviewId,
+    bool IsReviewed,
     IReadOnlyCollection<MyOrderItemOptionResponse> Options);

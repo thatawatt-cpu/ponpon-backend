@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PonPon.Modules.Catalog.Application.Abstractions;
+using PonPon.Modules.Catalog.Application.Features.CustomerEngagement;
 using PonPon.Modules.Catalog.Application.Features.Categories.GetCategories;
 using PonPon.Modules.Catalog.Application.Features.FlashSales.CreateFlashSale;
 using PonPon.Modules.Catalog.Application.Features.FlashSales.DeleteFlashSale;
@@ -16,6 +17,7 @@ using PonPon.Modules.Catalog.Application.Features.HomeSlides.GetHomeSlides;
 using PonPon.Modules.Catalog.Application.Features.HomeSlides.GetPublishedHomeSlides;
 using PonPon.Modules.Catalog.Application.Features.HomeSlides.ReorderHomeSlides;
 using PonPon.Modules.Catalog.Application.Features.HomeSlides.UpdateHomeSlide;
+using PonPon.Modules.Catalog.Application.Features.Products;
 using PonPon.Modules.Catalog.Application.Features.Products.GetProductById;
 using PonPon.Modules.Catalog.Application.Features.Products.GetProductBySlug;
 using PonPon.Modules.Catalog.Application.Features.Products.GetProducts;
@@ -33,6 +35,7 @@ using PonPon.Modules.Catalog.Infrastructure.ExternalServices.Supabase;
 using PonPon.Modules.Catalog.Infrastructure.ExternalServices.Zort;
 using PonPon.Modules.Catalog.Infrastructure.Persistence;
 using PonPon.Modules.Catalog.Infrastructure.Persistence.Repositories;
+using PonPon.Shared.Application.Abstractions;
 
 namespace PonPon.Modules.Catalog;
 
@@ -43,11 +46,8 @@ public static class CatalogModule
         services.Configure<ZortOptions>(configuration.GetSection("Zort"));
         services.Configure<SupabaseOptions>(configuration.GetSection("Supabase"));
 
-        services.AddHttpClient<ISupabaseStorageService, SupabaseStorageService>((provider, client) =>
-        {
-            var options = provider.GetRequiredService<IOptions<SupabaseOptions>>().Value;
-            client.BaseAddress = new Uri(options.Url.TrimEnd('/') + "/");
-        }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        services.AddHttpClient<ISupabaseStorageService, SupabaseStorageService>()
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
         {
             PooledConnectionLifetime = TimeSpan.FromMinutes(2)
         });
@@ -55,6 +55,7 @@ public static class CatalogModule
         services.AddDbContext<CatalogDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection"), npgsql =>
                 npgsql.MigrationsHistoryTable("__ef_migrations_history", CatalogDbContext.Schema)));
+        services.AddMemoryCache();
 
         services.AddScoped<IProductRepository, ProductRepository>();
         services.AddScoped<IFlashSaleRepository, FlashSaleRepository>();
@@ -73,6 +74,7 @@ public static class CatalogModule
         });
 
         services.AddScoped<IRichTextImageProcessor, RichTextImageProcessor>();
+        services.AddScoped<ProductDetailPriceResolver>();
 
         services.AddScoped<GetProductsHandler>();
         services.AddScoped<GetProductByIdHandler>();
@@ -101,6 +103,8 @@ public static class CatalogModule
         services.AddScoped<UploadAdminFileHandler>();
         services.AddScoped<GetWarehousesHandler>();
         services.AddScoped<SyncWarehousesHandler>();
+        services.AddScoped<CustomerEngagementService>();
+        services.AddScoped<ICustomerProfileSummaryProvider>(sp => sp.GetRequiredService<CustomerEngagementService>());
 
         return services;
     }

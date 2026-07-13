@@ -7,13 +7,13 @@ using PonPon.Modules.Identity.Application.Features.CustomerAddresses;
 using PonPon.Modules.Identity.Application.Features.GetMe;
 using PonPon.Modules.Identity.Application.Features.LineLogin;
 using PonPon.Modules.Identity.Application.Features.Logout;
+using PonPon.Modules.Identity.Application.Features.RegisterFirstAdmin;
 using PonPon.Modules.Identity.Application.Features.RefreshToken;
 using PonPon.Modules.Identity.Infrastructure.Jwt;
 using PonPon.Modules.Identity.Infrastructure.Line;
 using PonPon.Modules.Identity.Infrastructure.Persistence;
 using PonPon.Modules.Identity.Infrastructure.Persistence.Repositories;
 using PonPon.Modules.Identity.Infrastructure.Security;
-using PonPon.Modules.Identity.Infrastructure.Seeding;
 using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Infrastructure.Time;
 
@@ -25,7 +25,6 @@ public static class IdentityModule
     {
         services.Configure<JwtOptions>(configuration.GetSection("Jwt"));
         services.Configure<LineOptions>(configuration.GetSection("Line"));
-        services.Configure<SeedAdminOptions>(configuration.GetSection("SeedAdmin"));
 
         services.AddDbContext<IdentityDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection"), npgsql =>
@@ -45,6 +44,7 @@ public static class IdentityModule
 
         services.AddScoped<LineLoginHandler>();
         services.AddScoped<AdminLoginHandler>();
+        services.AddScoped<RegisterFirstAdminHandler>();
         services.AddScoped<RefreshTokenHandler>();
         services.AddScoped<GetMeHandler>();
         services.AddScoped<LogoutHandler>();
@@ -53,7 +53,6 @@ public static class IdentityModule
         services.AddScoped<UpdateCustomerAddressHandler>();
         services.AddScoped<SetDefaultCustomerAddressHandler>();
         services.AddScoped<DeleteCustomerAddressHandler>();
-        services.AddScoped<IdentityDataSeeder>();
 
         return services;
     }

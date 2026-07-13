@@ -8,6 +8,7 @@ public sealed class FlashSale
 
     public Guid Id { get; private set; }
     public string Name { get; private set; }
+    public bool IsActive { get; private set; }
     public DateOnly StartDate { get; private set; }
     public DateOnly EndDate { get; private set; }
     public string[] Slots { get; private set; }
@@ -15,12 +16,13 @@ public sealed class FlashSale
     public DateTime? UpdatedAt { get; private set; }
     public IReadOnlyCollection<FlashSaleProduct> Products => _products.AsReadOnly();
 
-    public static FlashSale Create(string name, DateOnly startDate, DateOnly endDate, string[] slots, IReadOnlyList<(Guid ProductId, decimal SalePrice, int? QuantityLimit)> products, DateTime now)
+    public static FlashSale Create(string name, DateOnly startDate, DateOnly endDate, string[] slots, IReadOnlyList<(Guid ProductId, decimal SalePrice, int? QuantityLimit)> products, DateTime now, bool isActive = false)
     {
         var flashSale = new FlashSale
         {
             Id = Guid.NewGuid(),
             Name = name,
+            IsActive = isActive,
             StartDate = startDate,
             EndDate = endDate,
             Slots = slots,
@@ -30,9 +32,10 @@ public sealed class FlashSale
         return flashSale;
     }
 
-    public void Update(string name, DateOnly startDate, DateOnly endDate, string[] slots, IReadOnlyList<(Guid ProductId, decimal SalePrice, int? QuantityLimit)> products, DateTime now)
+    public void Update(string name, DateOnly startDate, DateOnly endDate, string[] slots, IReadOnlyList<(Guid ProductId, decimal SalePrice, int? QuantityLimit)> products, DateTime now, bool isActive)
     {
         Name = name;
+        IsActive = isActive;
         StartDate = startDate;
         EndDate = endDate;
         Slots = slots;
@@ -46,4 +49,5 @@ public sealed class FlashSale
         foreach (var (productId, salePrice, quantityLimit) in products)
             _products.Add(new FlashSaleProduct(Id, productId, salePrice, quantityLimit));
     }
+
 }

@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Catalog.Domain.Categories;
 using PonPon.Modules.Catalog.Domain.Products;
@@ -9,8 +10,13 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Repositories;
 public sealed class ProductRepository : IProductRepository
 {
     private readonly CatalogDbContext _dbContext;
+    private readonly IMemoryCache _cache;
 
-    public ProductRepository(CatalogDbContext dbContext) => _dbContext = dbContext;
+    public ProductRepository(CatalogDbContext dbContext, IMemoryCache cache)
+    {
+        _dbContext = dbContext;
+        _cache = cache;
+    }
 
     public async Task<IReadOnlyCollection<Product>> GetCustomerProductsAsync(string? keyword, string? category, int page, int pageSize, CancellationToken cancellationToken = default)
     {
@@ -25,6 +31,129 @@ public sealed class ProductRepository : IProductRepository
         }
 
         return await query.OrderBy(x => x.Name).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<Application.Features.Products.GetProducts.ProductListItemReadModel>> GetCustomerProductListItemsAsync(string? keyword, string? category, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var query = _dbContext.Products
+            .AsNoTracking()
+            .Where(x => x.IsActiveFromZort && x.IsVisibleOnLiff && x.Status == ProductStatus.Active && x.AvailableStock > 0);
+        query = ApplyKeyword(query, keyword);
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            query = query.Where(x => x.CategoryName == category);
+        }
+
+        var products = await query
+            .OrderBy(x => x.Name)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(x => new ProductListPageRow(
+                x.Id,
+                x.Name,
+                x.BaseSku,
+                x.Slug,
+                x.SellPrice,
+                x.OriginalPrice,
+                x.Stock,
+                x.AvailableStock,
+                x.ImageUrl,
+                x.CategoryName,
+                x.IsActiveFromZort,
+                x.IsVisibleOnLiff,
+                x.Source,
+                x.Status))
+            .ToArrayAsync(cancellationToken);
+
+        return await HydrateListRowsAsync(products, cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<Product>> GetFeaturedCustomerProductsAsync(int limit, CancellationToken cancellationToken = default)
+    {
+        var take = Math.Clamp(limit, 1, 100);
+        return await _dbContext.Products
+            .AsNoTracking()
+            .Include(x => x.Variants)
+            .Where(x => x.IsActiveFromZort
+                        && x.IsVisibleOnLiff
+                        && x.Status == ProductStatus.Active
+                        && x.AvailableStock > 0)
+            .OrderByDescending(x => x.IsFeatured)
+            .ThenByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .ThenBy(x => x.Name)
+            .Take(take)
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<Product>> GetRelatedCustomerProductsAsync(Guid productId, string? categoryName, int limit, CancellationToken cancellationToken = default)
+    {
+        var take = Math.Clamp(limit, 1, 100);
+        var query = _dbContext.Products
+            .AsNoTracking()
+            .Include(x => x.Variants)
+            .Where(x => x.Id != productId
+                        && x.IsActiveFromZort
+                        && x.IsVisibleOnLiff
+                        && x.Status == ProductStatus.Active
+                        && x.AvailableStock > 0);
+
+        if (!string.IsNullOrWhiteSpace(categoryName))
+            query = query.Where(x => x.CategoryName == categoryName);
+
+        return await query
+            .OrderByDescending(x => x.IsFeatured)
+            .ThenByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .ThenBy(x => x.Name)
+            .Take(take)
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<Application.Features.Products.GetProducts.ProductListItemReadModel>> GetRelatedCustomerProductListItemsAsync(Guid productId, string? categoryName, int limit, CancellationToken cancellationToken = default)
+    {
+        var take = Math.Clamp(limit, 1, 100);
+        var cacheKey = $"catalog:related-list:{productId:N}:{NormalizeCachePart(categoryName)}:{take}";
+        if (_cache.TryGetValue(cacheKey, out IReadOnlyCollection<Application.Features.Products.GetProducts.ProductListItemReadModel>? cached)
+            && cached is not null)
+        {
+            return cached;
+        }
+
+        var query = _dbContext.Products
+            .AsNoTracking()
+            .Where(x => x.Id != productId
+                        && x.IsActiveFromZort
+                        && x.IsVisibleOnLiff
+                        && x.Status == ProductStatus.Active
+                        && x.AvailableStock > 0);
+
+        if (!string.IsNullOrWhiteSpace(categoryName))
+            query = query.Where(x => x.CategoryName == categoryName);
+
+        var products = await query
+            .OrderByDescending(x => x.IsFeatured)
+            .ThenByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .ThenBy(x => x.Name)
+            .Take(take)
+            .Select(x => new ProductListPageRow(
+                x.Id,
+                x.Name,
+                x.BaseSku,
+                x.Slug,
+                x.SellPrice,
+                x.OriginalPrice,
+                x.Stock,
+                x.AvailableStock,
+                x.ImageUrl,
+                x.CategoryName,
+                x.IsActiveFromZort,
+                x.IsVisibleOnLiff,
+                x.Source,
+                x.Status))
+            .ToArrayAsync(cancellationToken);
+
+        var result = await HydrateListRowsAsync(products, cancellationToken);
+        _cache.Set(cacheKey, result, RelatedListCacheOptions);
+        return result;
     }
 
     public async Task<IReadOnlyCollection<Product>> GetAdminProductsAsync(string? keyword, ProductStatus? status, ProductSource? source, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -44,6 +173,44 @@ public sealed class ProductRepository : IProductRepository
         return await query.OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyCollection<Application.Features.Products.GetProducts.ProductListItemReadModel>> GetAdminProductListItemsAsync(string? keyword, ProductStatus? status, ProductSource? source, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var query = _dbContext.Products.AsNoTracking().AsQueryable();
+        query = ApplyKeyword(query, keyword);
+        if (status is not null)
+        {
+            query = query.Where(x => x.Status == status);
+        }
+
+        if (source is not null)
+        {
+            query = query.Where(x => x.Source == source);
+        }
+
+        var products = await query
+            .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(x => new ProductListPageRow(
+                x.Id,
+                x.Name,
+                x.BaseSku,
+                x.Slug,
+                x.SellPrice,
+                x.OriginalPrice,
+                x.Stock,
+                x.AvailableStock,
+                x.ImageUrl,
+                x.CategoryName,
+                x.IsActiveFromZort,
+                x.IsVisibleOnLiff,
+                x.Source,
+                x.Status))
+            .ToArrayAsync(cancellationToken);
+
+        return await HydrateListRowsAsync(products, cancellationToken);
+    }
+
     public Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => _dbContext.Products.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
     public async Task<IReadOnlyCollection<Product>> GetByIdsAsync(IReadOnlySet<Guid> ids, CancellationToken cancellationToken = default)
@@ -60,10 +227,23 @@ public sealed class ProductRepository : IProductRepository
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
+    public async Task<IReadOnlyCollection<Product>> GetByIdsWithVariantsAsync(IReadOnlySet<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        if (ids.Count == 0)
+            return [];
+
+        return await _dbContext.Products
+            .AsNoTracking()
+            .Include(x => x.Variants)
+            .Where(x => ids.Contains(x.Id))
+            .ToArrayAsync(cancellationToken);
+    }
+
     public Task<Product?> GetByIdWithVariantsAndImagesAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return _dbContext.Products
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(x => x.Variants)
             .Include(x => x.Images)
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
@@ -73,6 +253,7 @@ public sealed class ProductRepository : IProductRepository
     {
         return _dbContext.Products
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(x => x.Variants)
             .Include(x => x.Images)
             .FirstOrDefaultAsync(x => x.Slug == slug, cancellationToken);
@@ -172,6 +353,51 @@ public sealed class ProductRepository : IProductRepository
 
     public async Task AddCategoriesAsync(IEnumerable<Category> categories, CancellationToken cancellationToken = default) => await _dbContext.Categories.AddRangeAsync(categories, cancellationToken);
 
+    private async Task<IReadOnlyCollection<Application.Features.Products.GetProducts.ProductListItemReadModel>> HydrateListRowsAsync(
+        IReadOnlyCollection<ProductListPageRow> products,
+        CancellationToken cancellationToken)
+    {
+        if (products.Count == 0)
+            return [];
+
+        var productIds = products.Select(x => x.Id).ToArray();
+        var variantRows = await _dbContext.ProductVariants
+            .AsNoTracking()
+            .Where(x => productIds.Contains(x.ProductId))
+            .Select(x => new ProductListVariantRow(x.ProductId, x.Stock, x.AvailableStock, x.ImageUrl))
+            .ToArrayAsync(cancellationToken);
+
+        var variantsByProduct = variantRows
+            .GroupBy(x => x.ProductId)
+            .ToDictionary(x => x.Key, x => x.ToArray());
+
+        return products.Select(product =>
+        {
+            variantsByProduct.TryGetValue(product.Id, out var variants);
+            variants ??= [];
+
+            return new Application.Features.Products.GetProducts.ProductListItemReadModel(
+                product.Id,
+                product.Name,
+                product.BaseSku,
+                product.Slug,
+                product.SellPrice,
+                product.OriginalPrice,
+                product.Stock,
+                product.AvailableStock,
+                product.ImageUrl,
+                product.CategoryName,
+                product.IsActiveFromZort,
+                product.IsVisibleOnLiff,
+                product.Source,
+                product.Status,
+                variants.Sum(x => x.Stock),
+                variants.Sum(x => x.AvailableStock),
+                variants.Length,
+                variants.Select(x => x.ImageUrl).OfType<string>().ToArray());
+        }).ToArray();
+    }
+
     private static IQueryable<Product> ApplyKeyword(IQueryable<Product> query, string? keyword)
     {
         if (string.IsNullOrWhiteSpace(keyword))
@@ -182,6 +408,34 @@ public sealed class ProductRepository : IProductRepository
         var normalized = keyword.Trim();
         return query.Where(x => x.Name.Contains(normalized) || (x.BaseSku != null && x.BaseSku.Contains(normalized)) || (x.Barcode != null && x.Barcode.Contains(normalized)));
     }
+
+    private sealed record ProductListPageRow(
+        Guid Id,
+        string Name,
+        string? BaseSku,
+        string? Slug,
+        decimal SellPrice,
+        decimal? OriginalPrice,
+        int Stock,
+        int AvailableStock,
+        string? ImageUrl,
+        string? CategoryName,
+        bool IsActiveFromZort,
+        bool IsVisibleOnLiff,
+        ProductSource Source,
+        ProductStatus Status);
+
+    private sealed record ProductListVariantRow(Guid ProductId, int Stock, int AvailableStock, string? ImageUrl);
+
+    private static readonly MemoryCacheEntryOptions RelatedListCacheOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30),
+        SlidingExpiration = TimeSpan.FromSeconds(10),
+        Size = 1
+    };
+
+    private static string NormalizeCachePart(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "-" : value.Trim().ToLowerInvariant();
 
     public async Task<IReadOnlyDictionary<string, (string? ImageUrl, string? OptionsJson)>> GetVariantImageAndOptionsBySkusAsync(
         IReadOnlySet<string> skus,
@@ -244,45 +498,4 @@ public sealed class ProductRepository : IProductRepository
         }
     }
 
-    public async Task<bool> TryReleaseOrderVariantsStockAsync(
-        Guid orderId,
-        IReadOnlyDictionary<Guid, int> variantQuantities,
-        DateTime releasedAtUtc,
-        CancellationToken cancellationToken = default)
-    {
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-
-        var claimed = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-             UPDATE ordering.orders
-             SET "HasStockReservation" = FALSE,
-                 "UpdatedAtUtc" = {releasedAtUtc}
-             WHERE "Id" = {orderId}
-               AND "HasStockReservation" = TRUE
-             """,
-            cancellationToken);
-
-        if (claimed != 1)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return false;
-        }
-
-        foreach (var (variantId, quantity) in variantQuantities.Where(x => x.Value > 0))
-        {
-            var affected = await _dbContext.Set<ProductVariant>()
-                .Where(x => x.Id == variantId)
-                .ExecuteUpdateAsync(
-                    s => s.SetProperty(
-                        v => v.AvailableStock,
-                        v => v.AvailableStock + quantity),
-                    cancellationToken);
-
-            if (affected != 1)
-                throw new InvalidOperationException($"Variant {variantId} was not found while releasing stock.");
-        }
-
-        await transaction.CommitAsync(cancellationToken);
-        return true;
-    }
 }

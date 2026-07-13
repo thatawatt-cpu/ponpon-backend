@@ -74,6 +74,10 @@ public sealed class HandleZortWebhookHandler
         if (IsVoided(order.Status))
             await _stockReservations.ReleaseAsync(order, cancellationToken);
 
+        var shouldNotifyDelivered = IsDelivered(order.Status)
+            && order.DeliveredNotificationSentAtUtc is null;
+        var canNotifyLine = !string.IsNullOrWhiteSpace(order.IntegrationCustomerId);
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         if (!wasPacked && IsPacked(order))
@@ -88,11 +92,16 @@ public sealed class HandleZortWebhookHandler
                 cancellationToken);
         }
 
-        if (!wasDelivered && IsDelivered(order.Status))
+        if ((!wasDelivered && IsDelivered(order.Status)) || shouldNotifyDelivered)
         {
             await _lineNotifications.NotifyShippingStatusAsync(
                 CreateLineNotification(order, ZortOrderStatus.Success.ToString(), order.TrackingNo),
                 cancellationToken);
+            if (shouldNotifyDelivered && canNotifyLine)
+            {
+                order.MarkDeliveredNotificationSent(_clock.UtcNow);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
             await _shopRealtimeNotifications.NotifyAsync(
                 CreateShopNotification(
                     order,

@@ -12,6 +12,14 @@ internal static class ShippopOrderStatusPolicy
                 progress = ShippingOrderProgress.Shipping;
                 return true;
             case "complete":
+            case "completed":
+            case "success":
+            case "successful":
+            case "delivered":
+            case "delivered_success":
+            case "delivery_success":
+            case "finish":
+            case "finished":
                 progress = ShippingOrderProgress.Completed;
                 return true;
             case "invalid":

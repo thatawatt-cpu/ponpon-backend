@@ -139,6 +139,13 @@ public sealed class PromotionScheduleRule
         StartsAtLocalTime = input.StartsAtLocalTime,
         EndsAtLocalTime = input.EndsAtLocalTime
     };
+
+    public static PromotionScheduleRule Create(Guid promotionId, PromotionScheduleRuleInput input)
+    {
+        var rule = Create(input);
+        rule.PromotionId = promotionId;
+        return rule;
+    }
 }
 
 public sealed record PromotionScheduleRuleInput(
@@ -174,6 +181,13 @@ public sealed class PromotionScope
         CategoryName = string.IsNullOrWhiteSpace(input.CategoryName) ? null : input.CategoryName.Trim(),
         IsExclude = input.IsExclude
     };
+
+    public static PromotionScope Create(Guid promotionId, PromotionScopeInput input)
+    {
+        var scope = Create(input);
+        scope.PromotionId = promotionId;
+        return scope;
+    }
 }
 
 public sealed record PromotionScopeInput(
@@ -202,6 +216,13 @@ public sealed class PromotionCustomerScope
         Type = input.Type.Trim().ToLowerInvariant(),
         CustomerId = input.CustomerId
     };
+
+    public static PromotionCustomerScope Create(Guid promotionId, PromotionCustomerScopeInput input)
+    {
+        var scope = Create(input);
+        scope.PromotionId = promotionId;
+        return scope;
+    }
 }
 
 public sealed record PromotionCustomerScopeInput(
@@ -227,6 +248,13 @@ public sealed class PromotionCondition
         Type = input.Type.Trim().ToLowerInvariant(),
         Value = input.Value.Trim().ToLowerInvariant()
     };
+
+    public static PromotionCondition Create(Guid promotionId, PromotionConditionInput input)
+    {
+        var condition = Create(input);
+        condition.PromotionId = promotionId;
+        return condition;
+    }
 }
 
 public sealed record PromotionConditionInput(string Type, string Value);

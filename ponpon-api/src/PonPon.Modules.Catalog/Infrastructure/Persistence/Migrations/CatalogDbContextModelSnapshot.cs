@@ -72,14 +72,19 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly>("EndDate")
                         .HasColumnType("date");
 
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                b.Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(256)
+                    .HasColumnType("character varying(256)");
 
-                    b.PrimitiveCollection<string[]>("Slots")
-                        .IsRequired()
-                        .HasColumnType("text[]");
+           b.Property<bool>("IsActive")
+               .ValueGeneratedOnAdd()
+               .HasColumnType("boolean")
+               .HasDefaultValue(false);
+
+                b.PrimitiveCollection<string[]>("Slots")
+                    .IsRequired()
+                    .HasColumnType("text[]");
 
                     b.Property<DateOnly>("StartDate")
                         .HasColumnType("date");
@@ -87,10 +92,12 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("Id");
+                b.HasKey("Id");
 
-                    b.ToTable("flash_sales", "catalog");
-                });
+           b.HasIndex("IsActive", "StartDate", "EndDate");
+
+                b.ToTable("flash_sales", "catalog");
+            });
 
             modelBuilder.Entity("PonPon.Modules.Catalog.Domain.FlashSales.FlashSaleProduct", b =>
                 {
@@ -113,6 +120,9 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(18,2)");
 
                     b.HasKey("FlashSaleId", "ProductId");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("IX_flash_sale_products_ProductId");
 
                     b.ToTable("flash_sale_products", "catalog");
                 });
@@ -370,8 +380,17 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("BaseSku");
 
+                    b.HasIndex("CategoryName", "IsActiveFromZort", "IsVisibleOnLiff", "Status", "AvailableStock", "Name")
+                        .HasDatabaseName("IX_products_customer_category_list");
+
+                    b.HasIndex("IsActiveFromZort", "IsVisibleOnLiff", "Status", "AvailableStock", "Name")
+                        .HasDatabaseName("IX_products_customer_list");
+
                     b.HasIndex("Slug")
                         .IsUnique();
+
+                    b.HasIndex("Status", "Source", "UpdatedAt", "CreatedAt")
+                        .HasDatabaseName("IX_products_admin_list");
 
                     b.HasIndex("ZortProductId");
 

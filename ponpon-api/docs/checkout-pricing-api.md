@@ -9,7 +9,6 @@ Call `POST /api/orders/pricing-preview` whenever cart items, shipping address/ch
   "shippingPhone": "0812345678",
   "shippingAddress": "99 Road district state province 10110",
   "shippingChannel": "standard",
-  "paymentMethod": "promptpay",
   "couponCode": "WELCOME10",
   "items": [
     { "productId": "00000000-0000-0000-0000-000000000000", "variantId": null, "quantity": 1 }
@@ -90,10 +89,9 @@ If multiple customer scopes are supplied, a customer can use the coupon when any
 
 Coupon checkout conditions:
 
-- `conditions: []` or omitted = no channel, payment, or shipping restriction.
+- `conditions: []` or omitted = no sales channel or shipping restriction.
 - `sales_channel` values use the order sales channel; customer checkout currently sends `LineLiff`.
-- `payment_method` values: `promptpay`, `card`, `mobile_banking_bbl`, `mobile_banking_kbank`,
-  `mobile_banking_scb`, `mobile_banking_ktb`, or `mobile_banking_bay`.
+- Payment method is not part of pricing calculation yet.
 - `shipping_channel` values use the shipping courier/service code sent in `shippingChannel`.
 - Values within the same condition type are OR. Different condition types are AND.
 
@@ -101,15 +99,14 @@ Coupon checkout conditions:
 {
   "conditions": [
     { "type": "sales_channel", "value": "LineLiff" },
-    { "type": "payment_method", "value": "promptpay" },
     { "type": "shipping_channel", "value": "flash" },
     { "type": "shipping_channel", "value": "kerry" }
   ]
 }
 ```
 
-Send the selected `paymentMethod` in both `POST /api/orders/pricing-preview` and
-`POST /api/orders`. The order stores that choice, and payment creation rejects a different method.
+Send the selected `paymentMethod` only when creating the order or creating the payment. Pricing
+preview does not calculate by payment method yet.
 
 Bulk generate coupons:
 

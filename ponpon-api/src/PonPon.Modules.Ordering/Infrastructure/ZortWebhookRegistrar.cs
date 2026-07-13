@@ -17,6 +17,10 @@ public sealed class ZortWebhookRegistrar : IZortWebhookRegistrar
         var b = baseUrl.TrimEnd('/');
         return _zort.RegisterWebhookAsync(
             $"{b}/api/webhooks/zort/order",
+            $"{b}/api/webhooks/zort/product/add",
+            $"{b}/api/webhooks/zort/product/update",
+            $"{b}/api/webhooks/zort/product/delete",
+            $"{b}/api/webhooks/zort/product/quantity",
             key1, key2, key3, cancellationToken);
     }
 

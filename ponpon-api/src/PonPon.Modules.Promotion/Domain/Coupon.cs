@@ -2,11 +2,13 @@ namespace PonPon.Modules.Promotion.Domain;
 
 public sealed class Coupon
 {
-    private Coupon() { Code = string.Empty; Type = string.Empty; }
+    private Coupon() { Code = string.Empty; Name = string.Empty; Type = string.Empty; }
 
     public Guid Id { get; private set; }
     public Guid? CampaignId { get; private set; }
     public string Code { get; private set; }
+    public string Name { get; private set; }
+    public string? Description { get; private set; }
     public string Type { get; private set; }
     public decimal Value { get; private set; }
     public decimal MinimumSubtotal { get; private set; }
@@ -36,6 +38,8 @@ public sealed class Coupon
     public void Update(CouponInput input, DateTime now)
     {
         Code = input.Code.Trim().ToUpperInvariant();
+        Name = string.IsNullOrWhiteSpace(input.Name) ? Code : input.Name.Trim();
+        Description = string.IsNullOrWhiteSpace(input.Description) ? null : input.Description.Trim();
         CampaignId = input.CampaignId;
         Type = input.Type.Trim().ToLowerInvariant();
         Value = input.Value;
@@ -84,7 +88,9 @@ public sealed record CouponInput(
     IReadOnlyCollection<CouponConditionInput>? Conditions = null,
     bool CanStackWithPromotions = true,
     bool CanStackWithCoupons = true,
-    Guid? CampaignId = null)
+    Guid? CampaignId = null,
+    string? Name = null,
+    string? Description = null)
 {
     public IReadOnlyCollection<CouponScopeInput> Scopes { get; } = Scopes ?? [];
     public IReadOnlyCollection<CouponCustomerScopeInput> CustomerScopes { get; } = CustomerScopes ?? [];

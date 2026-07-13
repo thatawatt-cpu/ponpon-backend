@@ -27,7 +27,7 @@ public sealed class GetFlashSaleByIdHandler
         var products = await _products.GetByIdsAsync(productIds, cancellationToken);
         var productMap = products.ToDictionary(x => x.Id);
 
-        var today = DateOnly.FromDateTime(_clock.UtcNow);
-        return GetFlashSalesHandler.MapToResponse(flashSale, today, productMap);
+        var localNow = GetFlashSalesHandler.GetBangkokNow(_clock.UtcNow);
+        return GetFlashSalesHandler.MapToResponse(flashSale, localNow, productMap);
     }
 }

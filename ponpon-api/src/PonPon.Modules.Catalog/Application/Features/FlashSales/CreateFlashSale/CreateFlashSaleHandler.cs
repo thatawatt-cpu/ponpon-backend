@@ -27,7 +27,8 @@ public sealed class CreateFlashSaleHandler
             command.EndDate,
             command.Slots,
             command.Products,
-            _clock.UtcNow);
+            _clock.UtcNow,
+            command.IsActive);
 
         await _flashSales.AddAsync(flashSale, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);

@@ -45,6 +45,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PonPon.Modules.Settings", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PonPon.Modules.Shipping", "src\PonPon.Modules.Shipping\PonPon.Modules.Shipping.csproj", "{2BA683E9-18DC-4E8E-9F28-1E4B82B63164}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PonPon.Modules.Reviews", "src\PonPon.Modules.Reviews\PonPon.Modules.Reviews.csproj", "{5EDE6609-DFF0-4368-ADFD-483D9675FC67}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -283,6 +285,18 @@ Global
 		{2BA683E9-18DC-4E8E-9F28-1E4B82B63164}.Release|x64.Build.0 = Release|Any CPU
 		{2BA683E9-18DC-4E8E-9F28-1E4B82B63164}.Release|x86.ActiveCfg = Release|Any CPU
 		{2BA683E9-18DC-4E8E-9F28-1E4B82B63164}.Release|x86.Build.0 = Release|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Debug|x64.Build.0 = Debug|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Debug|x86.Build.0 = Debug|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Release|x64.ActiveCfg = Release|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Release|x64.Build.0 = Release|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Release|x86.ActiveCfg = Release|Any CPU
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -307,5 +321,6 @@ Global
 		{B0A668AD-9D12-4886-93E1-569A2AD73F18} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{8CEDD086-CDE8-4F95-A7B9-85D215F7A683} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{2BA683E9-18DC-4E8E-9F28-1E4B82B63164} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{5EDE6609-DFF0-4368-ADFD-483D9675FC67} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

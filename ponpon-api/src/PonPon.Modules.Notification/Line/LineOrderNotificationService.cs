@@ -13,15 +13,18 @@ public sealed class LineOrderNotificationService : ILineOrderNotificationService
 
     private readonly HttpClient _httpClient;
     private readonly LineNotificationOptions _options;
+    private readonly IRuntimeSettingProvider _settings;
     private readonly ILogger<LineOrderNotificationService> _logger;
 
     public LineOrderNotificationService(
         HttpClient httpClient,
         IOptions<LineNotificationOptions> options,
+        IRuntimeSettingProvider settings,
         ILogger<LineOrderNotificationService> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -101,7 +104,8 @@ public sealed class LineOrderNotificationService : ILineOrderNotificationService
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(_options.ChannelAccessToken))
+        var lineSettings = await ResolveSettingsAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(lineSettings.ChannelAccessToken))
         {
             _logger.LogInformation("LINE customer notification skipped because Line:ChannelAccessToken is not configured.");
             return;
@@ -110,7 +114,7 @@ public sealed class LineOrderNotificationService : ILineOrderNotificationService
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, PushEndpoint);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ChannelAccessToken);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", lineSettings.ChannelAccessToken);
             request.Content = JsonContent.Create(new
             {
                 to = notification.LineUserId.Trim(),
@@ -120,7 +124,7 @@ public sealed class LineOrderNotificationService : ILineOrderNotificationService
                     {
                         type = "flex",
                         altText = title,
-                        contents = CreateBubble(notification, title, subtitle, color, actionLabel, buttonColor)
+                        contents = CreateBubble(notification, title, subtitle, color, actionLabel, buttonColor, lineSettings.WebAppBaseUrl)
                     }
                 }
             });
@@ -155,7 +159,8 @@ public sealed class LineOrderNotificationService : ILineOrderNotificationService
         string subtitle,
         string color,
         string actionLabel,
-        string buttonColor)
+        string buttonColor,
+        string? webAppBaseUrl)
     {
         var rows = new List<object>
         {
@@ -186,7 +191,7 @@ public sealed class LineOrderNotificationService : ILineOrderNotificationService
             new { type = "box", layout = "vertical", spacing = "sm", margin = "lg", contents = rows.ToArray() }
         };
 
-        var actionUrl = ResolveActionUrl(notification);
+        var actionUrl = ResolveActionUrl(notification, webAppBaseUrl);
         if (actionUrl is not null)
         {
             bodyContents.Add(new
@@ -218,16 +223,31 @@ public sealed class LineOrderNotificationService : ILineOrderNotificationService
         };
     }
 
-    private string? ResolveActionUrl(LineOrderNotification notification)
+    private static string? ResolveActionUrl(LineOrderNotification notification, string? webAppBaseUrl)
     {
         if (!string.IsNullOrWhiteSpace(notification.ActionUrl))
             return notification.ActionUrl.Trim();
 
-        if (string.IsNullOrWhiteSpace(_options.WebAppBaseUrl))
+        if (string.IsNullOrWhiteSpace(webAppBaseUrl))
             return null;
 
-        return $"{_options.WebAppBaseUrl.TrimEnd('/')}/orders/{notification.OrderId:D}";
+        return $"{webAppBaseUrl.TrimEnd('/')}/orders/{notification.OrderId:D}";
     }
+
+    private async Task<ResolvedLineNotificationSettings> ResolveSettingsAsync(CancellationToken cancellationToken)
+    {
+        var settings = await _settings.GetGroupAsync("Line", cancellationToken);
+        return new ResolvedLineNotificationSettings(
+            Get(settings, "ChannelAccessToken", _options.ChannelAccessToken),
+            Get(settings, "WebAppBaseUrl", _options.WebAppBaseUrl));
+    }
+
+    private static string Get(IReadOnlyDictionary<string, string?> settings, string key, string fallback)
+        => settings.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : fallback;
+
+    private sealed record ResolvedLineNotificationSettings(string ChannelAccessToken, string WebAppBaseUrl);
 
     private static object Row(string label, string value)
         => new

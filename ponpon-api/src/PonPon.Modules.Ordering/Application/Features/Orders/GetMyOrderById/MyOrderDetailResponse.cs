@@ -17,6 +17,7 @@ public sealed record MyOrderDetailResponse(
     string? TrackingNo,
     DateTime? OrderDate,
     DateTime? ShippingDate,
+    DateTime? ReceivedAtUtc,
     string? Reference,
     string? Description,
     bool IsCod,
@@ -44,6 +45,8 @@ public sealed record MyOrderItemResponse(
     decimal DiscountAmount,
     decimal TotalPrice,
     string? ImageUrl,
+    Guid? ReviewId,
+    bool IsReviewed,
     IReadOnlyCollection<MyOrderItemOptionResponse> Options);
 
 public sealed record MyOrderPaymentResponse(

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Catalog.Domain.FlashSales;
 using PonPon.Modules.Ordering.Application.Abstractions;
+using PonPon.Modules.Ordering.Application.Features.Orders.GetMyOrders;
 using PonPon.Modules.Ordering.Application.Pricing;
 using PonPon.Modules.Ordering.Domain.Orders;
 using PonPon.Shared.Application.Exceptions;
@@ -22,7 +23,8 @@ public sealed class PricingPipelineTests
             new DateOnly(2026, 7, 3),
             [],
             [(productId, 80m, null)],
-            DateTime.UtcNow);
+            DateTime.UtcNow,
+            true);
         var options = Options.Create(new PricingOptions
         {
             VatEnabled = true,
@@ -37,7 +39,6 @@ public sealed class PricingPipelineTests
         [
             new FlashSalePricingStep(new FakeFlashSaleRepository(flashSale)),
             new CouponPricingStep(new FakeCouponService(coupon)),
-            new VatPricingStep(options),
             new FinalizePricingStep(options)
         ]);
         var context = new PricingContext(
@@ -62,7 +63,7 @@ public sealed class PricingPipelineTests
         AssertEqual(80m, result.Lines.Single().UnitPrice);
         AssertEqual(16m, result.OrderDiscountAmount);
         AssertEqual(164m, result.GrandTotal);
-        AssertEqual(10.73m, result.VatAmount);
+        AssertEqual(0m, result.VatAmount);
     }
 
     public void RejectsCouponThatCannotCombineWithFlashSale()
@@ -74,7 +75,8 @@ public sealed class PricingPipelineTests
             new DateOnly(2026, 7, 3),
             [],
             [(productId, 80m, null)],
-            DateTime.UtcNow);
+            DateTime.UtcNow,
+            true);
         var options = Options.Create(new PricingOptions());
         var coupon = Coupon.Create(
             new CouponInput("NO-STACK", "fixed", 10, 0, null, null, null, false, null, null, true),
@@ -94,6 +96,59 @@ public sealed class PricingPipelineTests
 
         AssertThrows<BadRequestException>(
             () => pipeline.ExecuteAsync(context).GetAwaiter().GetResult());
+    }
+
+    public void IgnoresInactiveFlashSale()
+    {
+        var productId = Guid.NewGuid();
+        var flashSale = FlashSale.Create(
+            "Inactive sale",
+            new DateOnly(2026, 7, 3),
+            new DateOnly(2026, 7, 3),
+            [],
+            [(productId, 80m, null)],
+            DateTime.UtcNow);
+        var pipeline = new PricingPipeline(
+        [
+            new FlashSalePricingStep(new FakeFlashSaleRepository(flashSale)),
+            new FinalizePricingStep(Options.Create(new PricingOptions()))
+        ]);
+        var context = new PricingContext(
+        [
+            new PricingLineInput(productId, Guid.NewGuid(), "SKU", "Tea", 1, 100m, 0, null, null)
+        ],
+        0,
+        null,
+        new DateTime(2026, 7, 3, 5, 0, 0, DateTimeKind.Utc));
+
+        var result = pipeline.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        AssertEqual(100m, result.Lines.Single().UnitPrice);
+        AssertEqual(0, result.AppliedPromotions.Count);
+    }
+
+    public void FixedCouponDoesNotDiscountShipping()
+    {
+        var coupon = Coupon.Create(
+            new CouponInput("SAVE50", "fixed", 50, 0, null, null, null, true, null, null, true),
+            DateTime.UtcNow);
+        var pipeline = new PricingPipeline([
+            new CouponPricingStep(new FakeCouponService(coupon)),
+            new FinalizePricingStep(Options.Create(new PricingOptions()))
+        ]);
+        var context = new PricingContext(
+        [
+            new PricingLineInput(Guid.NewGuid(), Guid.NewGuid(), "SKU", "Tea", 1, 100m, 0, null, null)
+        ],
+        40m,
+        "SAVE50",
+        DateTime.UtcNow);
+
+        var result = pipeline.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        AssertEqual(50m, result.CouponDiscountAmount);
+        AssertEqual(0m, result.ShippingDiscountAmount);
+        AssertEqual(90m, result.GrandTotal);
     }
 
     public void AppliesCouponOnlyToEligibleProductScope()
@@ -160,6 +215,89 @@ public sealed class PricingPipelineTests
             () => pipeline.ExecuteAsync(context).GetAwaiter().GetResult());
     }
 
+    public void RejectsInvalidCouponWithStructuredError()
+    {
+        var pipeline = new PricingPipeline([new CouponPricingStep(new FakeCouponService())]);
+        var context = new PricingContext(
+        [
+            new PricingLineInput(Guid.NewGuid(), Guid.NewGuid(), "SKU", "Tea", 1, 100m, 0, null, null)
+        ],
+        0,
+        "MISSING",
+        DateTime.UtcNow);
+
+        var ex = AssertThrows<BadRequestException>(
+            () => pipeline.ExecuteAsync(context).GetAwaiter().GetResult());
+
+        AssertEqual("coupon_invalid", ex.ErrorCode);
+    }
+
+    public void RejectsProductIneligibleCouponWithStructuredError()
+    {
+        var coupon = Coupon.Create(
+            new CouponInput(
+                "ONLY-TEA",
+                "fixed",
+                10,
+                0,
+                null,
+                null,
+                null,
+                true,
+                null,
+                null,
+                true,
+                [new CouponScopeInput("sku", Sku: "TEA")]),
+            DateTime.UtcNow);
+        var pipeline = new PricingPipeline([new CouponPricingStep(new FakeCouponService(coupon))]);
+        var context = new PricingContext(
+        [
+            new PricingLineInput(Guid.NewGuid(), Guid.NewGuid(), "CAKE", "Cake", 1, 200m, 0, null, null)
+        ],
+        0,
+        "ONLY-TEA",
+        DateTime.UtcNow);
+
+        var ex = AssertThrows<BadRequestException>(
+            () => pipeline.ExecuteAsync(context).GetAwaiter().GetResult());
+
+        AssertEqual("coupon_product_not_eligible", ex.ErrorCode);
+    }
+
+    public void RejectsCouponBelowMinimumSubtotalWithStructuredError()
+    {
+        var coupon = Coupon.Create(
+            new CouponInput(
+                "MIN500",
+                "fixed",
+                50,
+                500,
+                null,
+                null,
+                null,
+                true,
+                null,
+                null,
+                true),
+            DateTime.UtcNow);
+        var pipeline = new PricingPipeline([new CouponPricingStep(new FakeCouponService(coupon))]);
+        var context = new PricingContext(
+        [
+            new PricingLineInput(Guid.NewGuid(), Guid.NewGuid(), "SKU", "Tea", 1, 320m, 0, null, null)
+        ],
+        0,
+        "MIN500",
+        DateTime.UtcNow);
+
+        var ex = AssertThrows<BadRequestException>(
+            () => pipeline.ExecuteAsync(context).GetAwaiter().GetResult());
+
+        AssertEqual("coupon_minimum_subtotal_not_met", ex.ErrorCode);
+        AssertEqual(500m, ReadDecimalDetail(ex.Details, "minimumSubtotal"));
+        AssertEqual(320m, ReadDecimalDetail(ex.Details, "eligibleSubtotal"));
+        AssertEqual(180m, ReadDecimalDetail(ex.Details, "remainingSubtotal"));
+    }
+
     public void CalculatesVatDiscountFromEligibleScopeOnly()
     {
         var eligibleProductId = Guid.NewGuid();
@@ -188,7 +326,6 @@ public sealed class PricingPipelineTests
         var pipeline = new PricingPipeline(
         [
             new CouponPricingStep(new FakeCouponService(coupon)),
-            new VatPricingStep(options),
             new FinalizePricingStep(options)
         ]);
         var context = new PricingContext(
@@ -203,7 +340,7 @@ public sealed class PricingPipelineTests
         var result = pipeline.ExecuteAsync(context).GetAwaiter().GetResult();
 
         AssertEqual(10m, result.OrderDiscountAmount);
-        AssertEqual(6.54m, result.VatAmount);
+        AssertEqual(0m, result.VatAmount);
     }
 
     public void AppliesFreeShippingCoupon()
@@ -274,7 +411,6 @@ public sealed class PricingPipelineTests
         var pipeline = new PricingPipeline(
         [
             new CouponPricingStep(new FakeCouponService(coupon)),
-            new VatPricingStep(options),
             new FinalizePricingStep(options)
         ]);
         var context = new PricingContext(
@@ -287,7 +423,7 @@ public sealed class PricingPipelineTests
 
         var result = pipeline.ExecuteAsync(context).GetAwaiter().GetResult();
 
-        AssertEqual(7m, result.VatAmount);
+        AssertEqual(0m, result.VatAmount);
         AssertEqual(107m, result.GrandTotal);
     }
 
@@ -649,19 +785,30 @@ public sealed class PricingPipelineTests
             throw new InvalidOperationException($"Expected {expected}, but was {actual}.");
     }
 
-    private static void AssertThrows<TException>(Action action)
+    private static TException AssertThrows<TException>(Action action)
         where TException : Exception
     {
         try
         {
             action();
         }
-        catch (TException)
+        catch (TException ex)
         {
-            return;
+            return ex;
         }
 
         throw new InvalidOperationException($"Expected {typeof(TException).Name}.");
+    }
+
+    private static decimal ReadDecimalDetail(object? details, string propertyName)
+    {
+        if (details is null)
+            throw new InvalidOperationException("Expected exception details.");
+
+        var property = details.GetType().GetProperty(propertyName)
+            ?? throw new InvalidOperationException($"Expected detail property {propertyName}.");
+        return (decimal)(property.GetValue(details)
+            ?? throw new InvalidOperationException($"Expected detail property {propertyName} value."));
     }
 
     private sealed class FakeFlashSaleRepository : IFlashSaleRepository
@@ -675,6 +822,13 @@ public sealed class PricingPipelineTests
             => Task.FromResult<FlashSale?>(_flashSale.Id == id ? _flashSale : null);
         public Task<FlashSale?> GetActiveAsync(DateOnly today, CancellationToken cancellationToken = default)
             => Task.FromResult<FlashSale?>(_flashSale);
+        public Task<IReadOnlyCollection<FlashSale>> GetActiveForProductsAsync(DateOnly today, IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken = default)
+            => Task.FromResult((IReadOnlyCollection<FlashSale>)(_flashSale.IsActive
+                && _flashSale.StartDate <= today
+                && today <= _flashSale.EndDate
+                && _flashSale.Products.Any(p => productIds.Contains(p.ProductId))
+                    ? [_flashSale]
+                    : []));
         public Task AddAsync(FlashSale flashSale, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
         public Task DeleteProductsAsync(Guid flashSaleId, CancellationToken cancellationToken = default)
@@ -799,12 +953,18 @@ public sealed class PricingPipelineTests
             Guid customerId,
             IReadOnlyCollection<string>? statuses,
             IReadOnlyCollection<string>? paymentStatuses,
+            MyOrderFilter? filter,
             int page,
             int pageSize,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<Order?> GetCustomerOrderByIdAsync(Guid id, Guid customerId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyDictionary<Guid, Guid>> GetReviewIdsByOrderItemIdsAsync(
+            IReadOnlyCollection<Guid> orderItemIds,
+            CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<Order?> GetByZortOrderIdAsync(long zortOrderId, CancellationToken cancellationToken = default)
@@ -814,6 +974,12 @@ public sealed class PricingPipelineTests
             => throw new NotSupportedException();
 
         public Task<IReadOnlyCollection<Order>> GetPendingZortSyncAsync(int limit, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IReadOnlyCollection<Order>> GetDeliveredUnreceivedOlderThanAsync(
+            DateTime cutoffUtc,
+            int limit,
+            CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task AddAsync(Order order, CancellationToken cancellationToken = default)
@@ -828,10 +994,16 @@ public sealed class PricingPipelineTests
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<bool> TryMarkStockReleasedAsync(Guid orderId, DateTime releasedAtUtc, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<IReadOnlyCollection<Order>> GetExpiredUnpaidAsync(DateTime now, string salesChannel, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<IOrderPaymentLock> AcquirePaymentLockAsync(Guid orderId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<IOrderPaymentLock> AcquireClientRequestLockAsync(Guid clientRequestId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 }

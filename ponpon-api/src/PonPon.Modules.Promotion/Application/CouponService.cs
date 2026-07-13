@@ -175,26 +175,46 @@ public sealed class CouponService : ICouponService
     {
         Validate(input);
         await EnsureCampaignExistsAsync(input.CampaignId, cancellationToken);
-        var coupon = await _db.Coupons
+        var before = await _db.Coupons
+            .AsNoTracking()
             .Include(x => x.Scopes)
             .Include(x => x.CustomerScopes)
             .Include(x => x.Conditions)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
+            ?? throw new NotFoundException("Coupon was not found.");
+        var coupon = await _db.Coupons
+            .IgnoreAutoIncludes()
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
             ?? throw new NotFoundException("Coupon was not found.");
         var code = input.Code.Trim().ToUpperInvariant();
         if (await _db.Coupons.AnyAsync(x => x.Id != id && x.Code == code, cancellationToken))
             throw new BadRequestException("Coupon code already exists.");
 
-        var beforeJson = ToAuditJson(coupon);
-        coupon.Update(input, DateTime.UtcNow);
-        _db.CouponAuditLogs.Add(CreateAuditLog(
-            coupon.Id,
-            null,
-            "updated",
-            beforeJson,
-            ToAuditJson(coupon),
-            DateTime.UtcNow));
-        await _db.SaveChangesAsync(cancellationToken);
+        var beforeJson = ToAuditJson(before);
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await DeleteCouponRulesAsync(id, cancellationToken);
+            coupon.Update(input, DateTime.UtcNow);
+            _db.CouponAuditLogs.Add(CreateAuditLog(
+                coupon.Id,
+                null,
+                "updated",
+                beforeJson,
+                ToAuditJson(coupon),
+                DateTime.UtcNow));
+            await _db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            if (!await _db.Coupons
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == id, cancellationToken))
+                throw new NotFoundException("Coupon was not found.");
+
+            throw;
+        }
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
@@ -367,6 +387,10 @@ public sealed class CouponService : ICouponService
     {
         if (string.IsNullOrWhiteSpace(input.Code) || input.Code.Trim().Length > 64)
             throw new BadRequestException("Coupon code is required and must not exceed 64 characters.");
+        if (input.Name?.Trim().Length > 256)
+            throw new BadRequestException("Coupon name must not exceed 256 characters.");
+        if (input.Description?.Trim().Length > 2000)
+            throw new BadRequestException("Coupon description must not exceed 2000 characters.");
         var couponType = input.Type.Trim().ToLowerInvariant();
         if (couponType is not ("fixed" or "percentage" or "free_shipping"))
             throw new BadRequestException("Coupon type must be fixed, percentage, or free_shipping.");
@@ -496,7 +520,9 @@ public sealed class CouponService : ICouponService
             template.Conditions,
             template.CanStackWithPromotions,
             template.CanStackWithCoupons,
-            campaignId);
+            campaignId,
+            template.Name,
+            template.Description);
     }
 
     internal static void ValidateBulkInput(CouponBulkGenerateInput input)
@@ -562,6 +588,8 @@ public sealed class CouponService : ICouponService
             coupon.Id,
             coupon.CampaignId,
             coupon.Code,
+            coupon.Name,
+            coupon.Description,
             coupon.Type,
             coupon.Value,
             coupon.MinimumSubtotal,
@@ -607,5 +635,18 @@ public sealed class CouponService : ICouponService
                 x => x.Id == campaignId.Value && x.IsActive,
                 cancellationToken))
             throw new BadRequestException("Coupon campaign was not found or is inactive.");
+    }
+
+    private async Task DeleteCouponRulesAsync(Guid couponId, CancellationToken cancellationToken)
+    {
+        await _db.Set<CouponScope>()
+            .Where(x => x.CouponId == couponId)
+            .ExecuteDeleteAsync(cancellationToken);
+        await _db.Set<CouponCustomerScope>()
+            .Where(x => x.CouponId == couponId)
+            .ExecuteDeleteAsync(cancellationToken);
+        await _db.Set<CouponCondition>()
+            .Where(x => x.CouponId == couponId)
+            .ExecuteDeleteAsync(cancellationToken);
     }
 }

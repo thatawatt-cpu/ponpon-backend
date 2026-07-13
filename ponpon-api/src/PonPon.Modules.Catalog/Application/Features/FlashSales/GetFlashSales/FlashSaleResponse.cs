@@ -5,6 +5,7 @@ public sealed record FlashSaleResponse(
     string Name,
     DateOnly StartDate,
     DateOnly EndDate,
+    bool IsActive,
     string[] Slots,
     string Status,
     IReadOnlyCollection<FlashSaleProductResponse> Products);

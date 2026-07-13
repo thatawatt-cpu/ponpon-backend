@@ -11,6 +11,7 @@ public static class ApplicationBuilderExtensions
         app.UseMiddleware<ExceptionHandlingMiddleware>();
         app.UseCors(CorsExtensions.PolicyName);
         app.UseAuthentication();
+        app.UseMiddleware<DevCustomerHeaderAuthenticationMiddleware>();
         app.UseAuthorization();
         return app;
     }

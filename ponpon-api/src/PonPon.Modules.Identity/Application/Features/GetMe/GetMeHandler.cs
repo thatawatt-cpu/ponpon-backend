@@ -9,12 +9,18 @@ public sealed class GetMeHandler
     private readonly ICurrentUser _currentUser;
     private readonly ICustomerRepository _customers;
     private readonly IUserRepository _users;
+    private readonly IEnumerable<ICustomerProfileSummaryProvider> _summaryProviders;
 
-    public GetMeHandler(ICurrentUser currentUser, ICustomerRepository customers, IUserRepository users)
+    public GetMeHandler(
+        ICurrentUser currentUser,
+        ICustomerRepository customers,
+        IUserRepository users,
+        IEnumerable<ICustomerProfileSummaryProvider> summaryProviders)
     {
         _currentUser = currentUser;
         _customers = customers;
         _users = users;
+        _summaryProviders = summaryProviders;
     }
 
     public async Task<MeResponse> HandleAsync(GetMeQuery query, CancellationToken cancellationToken = default)
@@ -27,7 +33,17 @@ public sealed class GetMeHandler
         if (_currentUser.UserType == "Customer" && _currentUser.CustomerId is Guid customerId)
         {
             var customer = await _customers.GetByIdAsync(customerId, cancellationToken) ?? throw new UnauthorizedException("Customer no longer exists.");
-            return new MeResponse(customer.Id, "Customer", customer.LineProfile.DisplayName, customer.LineProfile.Email, customer.LineProfile.PictureUrl, []);
+            var counts = await GetCountsAsync(customerId, cancellationToken);
+            return new MeResponse(
+                customer.Id,
+                "Customer",
+                customer.LineProfile.DisplayName,
+                customer.LineProfile.Email,
+                customer.LineProfile.PictureUrl,
+                [],
+                counts.WishlistCount ?? 0,
+                counts.CouponCount ?? 0,
+                counts.RecentlyViewedCount ?? 0);
         }
 
         if (_currentUser.UserType == "Admin" && _currentUser.UserId is Guid userId)
@@ -37,5 +53,24 @@ public sealed class GetMeHandler
         }
 
         throw new UnauthorizedException("Invalid token subject.");
+    }
+
+    private async Task<CustomerProfileSummaryCounts> GetCountsAsync(
+        Guid customerId,
+        CancellationToken cancellationToken)
+    {
+        var wishlistCount = 0;
+        var couponCount = 0;
+        var recentlyViewedCount = 0;
+
+        foreach (var provider in _summaryProviders)
+        {
+            var counts = await provider.GetCountsAsync(customerId, cancellationToken);
+            wishlistCount = counts.WishlistCount ?? wishlistCount;
+            couponCount = counts.CouponCount ?? couponCount;
+            recentlyViewedCount = counts.RecentlyViewedCount ?? recentlyViewedCount;
+        }
+
+        return new CustomerProfileSummaryCounts(wishlistCount, couponCount, recentlyViewedCount);
     }
 }

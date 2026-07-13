@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Options;
 using PonPon.Modules.Identity.Application.Abstractions;
 using PonPon.Modules.Identity.Domain.Customers;
+using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Identity.Infrastructure.Line;
@@ -10,16 +11,23 @@ public sealed class LineAuthService : ILineAuthService
 {
     private readonly HttpClient _httpClient;
     private readonly LineOptions _options;
+    private readonly IRuntimeSettingProvider _settings;
 
-    public LineAuthService(HttpClient httpClient, IOptions<LineOptions> options)
+    public LineAuthService(
+        HttpClient httpClient,
+        IOptions<LineOptions> options,
+        IRuntimeSettingProvider settings)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _settings = settings;
     }
 
     public async Task<LineProfile> VerifyIdTokenAsync(string idToken, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_options.ChannelId))
+        var channelId = await _settings.GetValueAsync("Line", "ChannelId", cancellationToken)
+            ?? _options.ChannelId;
+        if (string.IsNullOrWhiteSpace(channelId))
         {
             throw new UnauthorizedException("LINE ChannelId is not configured.");
         }
@@ -27,7 +35,7 @@ public sealed class LineAuthService : ILineAuthService
         using var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["id_token"] = idToken,
-            ["client_id"] = _options.ChannelId
+            ["client_id"] = channelId
         });
 
         var response = await _httpClient.PostAsync("https://api.line.me/oauth2/v2.1/verify", content, cancellationToken);

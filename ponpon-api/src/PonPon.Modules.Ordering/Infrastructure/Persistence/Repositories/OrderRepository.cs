@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using PonPon.Modules.Ordering.Application;
 using PonPon.Modules.Ordering.Application.Abstractions;
+using PonPon.Modules.Ordering.Application.Features.Orders.GetMyOrders;
 using PonPon.Modules.Ordering.Domain.Orders;
 
 namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Repositories;
@@ -17,9 +19,19 @@ public sealed class OrderRepository : IOrderRepository
     public async Task<IOrderPaymentLock> AcquirePaymentLockAsync(
         Guid orderId,
         CancellationToken cancellationToken = default)
+        => await AcquireAdvisoryLockAsync(orderId, cancellationToken);
+
+    public async Task<IOrderPaymentLock> AcquireClientRequestLockAsync(
+        Guid clientRequestId,
+        CancellationToken cancellationToken = default)
+        => await AcquireAdvisoryLockAsync(clientRequestId, cancellationToken);
+
+    private async Task<IOrderPaymentLock> AcquireAdvisoryLockAsync(
+        Guid id,
+        CancellationToken cancellationToken)
     {
         var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-        var bytes = orderId.ToByteArray();
+        var bytes = id.ToByteArray();
         var key1 = BitConverter.ToInt32(bytes, 0);
         var key2 = BitConverter.ToInt32(bytes, 4);
         await _dbContext.Database.ExecuteSqlInterpolatedAsync(
@@ -118,6 +130,7 @@ public sealed class OrderRepository : IOrderRepository
         Guid customerId,
         IReadOnlyCollection<string>? statuses,
         IReadOnlyCollection<string>? paymentStatuses,
+        MyOrderFilter? filter,
         int page,
         int pageSize,
         CancellationToken cancellationToken = default)
@@ -131,6 +144,8 @@ public sealed class OrderRepository : IOrderRepository
 
         if (paymentStatuses is { Count: > 0 })
             query = query.Where(x => paymentStatuses.Contains(x.PaymentStatus));
+
+        query = ApplyCustomerFilter(query, filter);
 
         var total = await query.CountAsync(cancellationToken);
 
@@ -149,6 +164,13 @@ public sealed class OrderRepository : IOrderRepository
             .ThenBy(i => i.Id)
             .ToArrayAsync(cancellationToken);
 
+        var orderItemIds = allItems.Select(x => x.Id).ToArray();
+        var reviewIdsByOrderItem = await _dbContext.ReviewReadModels
+            .AsNoTracking()
+            .Where(x => orderItemIds.Contains(x.OrderItemId) && x.DeletedAtUtc == null)
+            .Select(x => new { x.OrderItemId, x.Id })
+            .ToDictionaryAsync(x => x.OrderItemId, x => (Guid?)x.Id, cancellationToken);
+
         var itemsByOrder = allItems
             .GroupBy(i => i.OrderId)
             .ToDictionary(g => g.Key, g => g.ToArray());
@@ -156,10 +178,48 @@ public sealed class OrderRepository : IOrderRepository
         var items = orders.Select(o => new CustomerOrderItem(
             o,
             itemsByOrder.TryGetValue(o.Id, out var oi) ? oi.Length : 0,
-            itemsByOrder.TryGetValue(o.Id, out var oi2) ? (IReadOnlyList<OrderItem>)oi2.Take(3).ToArray() : []
+            itemsByOrder.TryGetValue(o.Id, out var oi2)
+                ? oi2
+                    .Take(3)
+                    .Select(item => new CustomerOrderItemPreview(
+                        item,
+                        reviewIdsByOrderItem.GetValueOrDefault(item.Id)))
+                    .ToArray()
+                : []
         )).ToArray();
 
         return new CustomerOrderListProjection(items, total);
+    }
+
+    private IQueryable<Order> ApplyCustomerFilter(IQueryable<Order> query, MyOrderFilter? filter)
+    {
+        if (filter is null)
+            return query;
+
+        return filter switch
+        {
+            MyOrderFilter.AwaitingReceive => query.Where(x =>
+                x.ReceivedAtUtc == null
+                && (x.Status == "Shipping"
+                    || x.Status == ((int)ZortOrderStatus.Shipping).ToString()
+                    || x.Status == "Success"
+                    || x.Status == ((int)ZortOrderStatus.Success).ToString())),
+            MyOrderFilter.Completed => query.Where(x => x.ReceivedAtUtc != null),
+            MyOrderFilter.ReturnRefund => query.Where(x =>
+                x.Status == "Returned"
+                || x.Status == ((int)ZortOrderStatus.Returned).ToString()
+                || x.OmiseRefundStatus != null
+                || _dbContext.OrderReturnRequests.Any(request => request.OrderId == x.Id)),
+            MyOrderFilter.AwaitingReview => query.Where(x =>
+                x.ReceivedAtUtc != null
+                && _dbContext.OrderItems.Any(item =>
+                    item.OrderId == x.Id
+                    && item.ProductId != null
+                    && !_dbContext.ReviewReadModels.Any(review =>
+                        review.OrderItemId == item.Id
+                        && review.DeletedAtUtc == null))),
+            _ => query
+        };
     }
 
     public Task<Order?> GetCustomerOrderByIdAsync(
@@ -173,6 +233,20 @@ public sealed class OrderRepository : IOrderRepository
             .FirstOrDefaultAsync(
                 x => x.Id == id && x.CustomerId == customerId,
                 cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, Guid>> GetReviewIdsByOrderItemIdsAsync(
+        IReadOnlyCollection<Guid> orderItemIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (orderItemIds.Count == 0)
+            return new Dictionary<Guid, Guid>();
+
+        return await _dbContext.ReviewReadModels
+            .AsNoTracking()
+            .Where(x => orderItemIds.Contains(x.OrderItemId) && x.DeletedAtUtc == null)
+            .Select(x => new { x.OrderItemId, x.Id })
+            .ToDictionaryAsync(x => x.OrderItemId, x => x.Id, cancellationToken);
     }
 
     public Task<Order?> GetByZortOrderIdAsync(long zortOrderId, CancellationToken cancellationToken = default)
@@ -203,6 +277,20 @@ public sealed class OrderRepository : IOrderRepository
                      && x.Status != "Voided"
                      && x.SalesChannel == "LineLiff")
             .OrderBy(x => x.CreatedAtUtc)
+            .Take(limit)
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<Order>> GetDeliveredUnreceivedOlderThanAsync(
+        DateTime cutoffUtc,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.Orders
+            .Where(x => x.ReceivedAtUtc == null
+                     && (x.Status == "Success" || x.Status == ((int)ZortOrderStatus.Success).ToString())
+                     && x.LastSyncedAt <= cutoffUtc)
+            .OrderBy(x => x.LastSyncedAt)
             .Take(limit)
             .ToArrayAsync(cancellationToken);
     }
@@ -243,6 +331,21 @@ public sealed class OrderRepository : IOrderRepository
                 .SetProperty(x => x.PaymentExpiresAt, (DateTime?)null)
                 .SetProperty(x => x.UpdatedAtUtc, DateTime.UtcNow),
                 cancellationToken);
+        return affected == 1;
+    }
+
+    public async Task<bool> TryMarkStockReleasedAsync(
+        Guid orderId,
+        DateTime releasedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var affected = await _dbContext.Orders
+            .Where(x => x.Id == orderId && x.HasStockReservation)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.HasStockReservation, false)
+                .SetProperty(x => x.UpdatedAtUtc, releasedAtUtc),
+                cancellationToken);
+
         return affected == 1;
     }
 }

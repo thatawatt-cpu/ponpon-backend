@@ -63,8 +63,11 @@ public sealed class OrderShippingStatusUpdater : IOrderShippingStatusUpdater
             && !string.Equals(order.Status, ((int)targetStatus).ToString(), StringComparison.OrdinalIgnoreCase);
         var trackingChanged = !string.IsNullOrWhiteSpace(trackingNumber)
             && !string.Equals(order.TrackingNo, trackingNumber.Trim(), StringComparison.OrdinalIgnoreCase);
+        var shouldNotifyDelivered = targetStatus == ZortOrderStatus.Success
+            && order.DeliveredNotificationSentAtUtc is null;
+        var canNotifyLine = !string.IsNullOrWhiteSpace(order.IntegrationCustomerId);
 
-        if (!statusChanged && !trackingChanged)
+        if (!statusChanged && !trackingChanged && !shouldNotifyDelivered)
         {
             return;
         }
@@ -75,9 +78,10 @@ public sealed class OrderShippingStatusUpdater : IOrderShippingStatusUpdater
         }
 
         order.ApplyShippingStatus(targetStatusName, trackingNumber, _clock.UtcNow);
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        if (statusChanged)
+        if (statusChanged || shouldNotifyDelivered)
         {
             await _lineNotifications.NotifyShippingStatusAsync(
                 new LineOrderNotification(
@@ -89,6 +93,11 @@ public sealed class OrderShippingStatusUpdater : IOrderShippingStatusUpdater
                     Status: targetStatusName,
                     TrackingNumber: trackingNumber ?? order.TrackingNo),
                 cancellationToken);
+            if (shouldNotifyDelivered && canNotifyLine)
+            {
+                order.MarkDeliveredNotificationSent(_clock.UtcNow);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
             await _shopRealtimeNotifications.NotifyAsync(
                 new ShopRealtimeNotification(
                     order.CustomerId,

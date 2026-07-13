@@ -81,12 +81,16 @@ public sealed class PromotionService(PromotionDbContext db) : IPromotionService
     {
         Validate(input);
         await EnsureCampaignExistsAsync(input.CampaignId, cancellationToken);
-        var promotion = await db.Promotions
-            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
-            ?? throw new NotFoundException("Promotion was not found.");
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        promotion.Update(input, DateTime.UtcNow);
+        var affectedRows = await UpdatePromotionAsync(id, input, DateTime.UtcNow, cancellationToken);
+        if (affectedRows == 0)
+            throw new NotFoundException("Promotion was not found.");
+
+        await DeletePromotionRulesAsync(id, cancellationToken);
+        await AddPromotionRulesAsync(id, input, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
@@ -283,5 +287,77 @@ public sealed class PromotionService(PromotionDbContext db) : IPromotionService
         if (campaignId.HasValue
             && !await db.CouponCampaigns.AnyAsync(x => x.Id == campaignId.Value && x.IsActive, cancellationToken))
             throw new BadRequestException("Campaign was not found or is inactive.");
+    }
+
+    private async Task DeletePromotionRulesAsync(Guid promotionId, CancellationToken cancellationToken)
+    {
+        await db.Set<PromotionScheduleRule>()
+            .Where(x => x.PromotionId == promotionId)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.Set<PromotionScope>()
+            .Where(x => x.PromotionId == promotionId)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.Set<PromotionCustomerScope>()
+            .Where(x => x.PromotionId == promotionId)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.Set<PromotionCondition>()
+            .Where(x => x.PromotionId == promotionId)
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private Task<int> UpdatePromotionAsync(
+        Guid promotionId,
+        PromotionInput input,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var name = input.Name.Trim();
+        var description = string.IsNullOrWhiteSpace(input.Description) ? null : input.Description.Trim();
+        var type = input.Type.Trim().ToLowerInvariant();
+        var discountType = input.DiscountType.Trim().ToLowerInvariant();
+        var timezone = string.IsNullOrWhiteSpace(input.Timezone) ? "Asia/Bangkok" : input.Timezone.Trim();
+
+        return db.Promotions
+            .Where(x => x.Id == promotionId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.CampaignId, input.CampaignId)
+                .SetProperty(x => x.Name, name)
+                .SetProperty(x => x.Description, description)
+                .SetProperty(x => x.Type, type)
+                .SetProperty(x => x.DiscountType, discountType)
+                .SetProperty(x => x.DiscountValue, input.DiscountValue)
+                .SetProperty(x => x.MinimumSubtotal, input.MinimumSubtotal)
+                .SetProperty(x => x.MaximumDiscount, input.MaximumDiscount)
+                .SetProperty(x => x.StartsAtUtc, input.StartsAtUtc)
+                .SetProperty(x => x.EndsAtUtc, input.EndsAtUtc)
+                .SetProperty(x => x.Timezone, timezone)
+                .SetProperty(x => x.Priority, input.Priority)
+                .SetProperty(x => x.CanStackWithCoupon, input.CanStackWithCoupon)
+                .SetProperty(x => x.CanStackWithPromotions, input.CanStackWithPromotions)
+                .SetProperty(x => x.CanCombineWithFlashSale, input.CanCombineWithFlashSale)
+                .SetProperty(x => x.MaximumTotalUses, input.MaximumTotalUses)
+                .SetProperty(x => x.MaximumUsesPerCustomer, input.MaximumUsesPerCustomer)
+                .SetProperty(x => x.IsActive, input.IsActive)
+                .SetProperty(x => x.UpdatedAtUtc, now),
+                cancellationToken);
+    }
+
+    private async Task AddPromotionRulesAsync(
+        Guid promotionId,
+        PromotionInput input,
+        CancellationToken cancellationToken)
+    {
+        await db.Set<PromotionScheduleRule>().AddRangeAsync(
+            input.ScheduleRules.Select(x => PromotionScheduleRule.Create(promotionId, x)),
+            cancellationToken);
+        await db.Set<PromotionScope>().AddRangeAsync(
+            input.Scopes.Select(x => PromotionScope.Create(promotionId, x)),
+            cancellationToken);
+        await db.Set<PromotionCustomerScope>().AddRangeAsync(
+            input.CustomerScopes.Select(x => PromotionCustomerScope.Create(promotionId, x)),
+            cancellationToken);
+        await db.Set<PromotionCondition>().AddRangeAsync(
+            input.Conditions.Select(x => PromotionCondition.Create(promotionId, x)),
+            cancellationToken);
     }
 }
