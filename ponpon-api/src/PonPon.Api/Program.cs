@@ -29,6 +29,11 @@ builder.Services.AddPonPonModules(builder.Configuration);
 var app = builder.Build();
 
 app.UsePonPonMiddlewares();
+app.MapGet("/api/health", () => Results.Ok(new
+{
+    status = "ok",
+    timestampUtc = DateTime.UtcNow
+})).AllowAnonymous();
 app.MapControllers();
 app.MapHub<ShopNotificationHub>("/hubs/shop-notifications");
 
