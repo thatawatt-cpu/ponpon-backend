@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PonPon.Modules.Identity.Application.Abstractions;
+using PonPon.Modules.Identity.Application.AdminUsers;
 using PonPon.Modules.Identity.Domain.Users;
 using PonPon.Modules.Identity.Infrastructure.Persistence;
 using PonPon.Shared.Application.Abstractions;
@@ -9,8 +10,6 @@ namespace PonPon.Modules.Identity.Application.Features.RegisterFirstAdmin;
 
 public sealed class RegisterFirstAdminHandler
 {
-    private const string AdminRoleName = "Admin";
-
     private readonly IdentityDbContext _dbContext;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IDateTimeProvider _clock;
@@ -44,10 +43,10 @@ public sealed class RegisterFirstAdminHandler
         if (await _dbContext.Users.AnyAsync(x => x.Email == normalizedEmail, cancellationToken))
             throw new BadRequestException("Email is already registered.");
 
-        var role = await _dbContext.Roles.FirstOrDefaultAsync(x => x.Name == AdminRoleName, cancellationToken);
+        var role = await _dbContext.Roles.FirstOrDefaultAsync(x => x.Name == AdminUserManagementService.OwnerRole, cancellationToken);
         if (role is null)
         {
-            role = new Role(AdminRoleName);
+            role = new Role(AdminUserManagementService.OwnerRole);
             await _dbContext.Roles.AddAsync(role, cancellationToken);
         }
 
@@ -58,6 +57,7 @@ public sealed class RegisterFirstAdminHandler
             normalizedEmail,
             _passwordHasher.Hash(command.Password),
             displayName,
+            AdminUserManagementService.SerializePermissions(AdminUserPermissions.OwnerPermissions),
             _clock.UtcNow);
 
         await _dbContext.Users.AddAsync(user, cancellationToken);
@@ -71,6 +71,7 @@ public sealed class RegisterFirstAdminHandler
 
     private Task<bool> HasAdminAsync(CancellationToken cancellationToken)
         => _dbContext.UserRoles.AnyAsync(
-            x => x.Role.Name == AdminRoleName,
+            x => x.Role.Name == AdminUserManagementService.OwnerRole
+                 || x.Role.Name == AdminUserManagementService.AdminRole,
             cancellationToken);
 }

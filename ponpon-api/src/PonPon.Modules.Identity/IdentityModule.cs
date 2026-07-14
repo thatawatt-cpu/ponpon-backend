@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using PonPon.Modules.Identity.Application.AdminUsers;
 using PonPon.Modules.Identity.Application.Abstractions;
 using PonPon.Modules.Identity.Application.Features.AdminLogin;
 using PonPon.Modules.Identity.Application.Features.CustomerAddresses;
@@ -49,6 +50,7 @@ public static class IdentityModule
         services.AddScoped<RegisterFirstAdminHandler>();
         services.AddScoped<RefreshTokenHandler>();
         services.AddScoped<GetMeHandler>();
+        services.AddScoped<AdminUserManagementService>();
         services.AddScoped<LogoutHandler>();
         services.AddScoped<GetMyCustomerAddressesHandler>();
         services.AddScoped<CreateCustomerAddressHandler>();

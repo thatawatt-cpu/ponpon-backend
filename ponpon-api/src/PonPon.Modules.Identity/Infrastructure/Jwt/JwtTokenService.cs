@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using PonPon.Modules.Identity.Application.Abstractions;
+using PonPon.Modules.Identity.Application.AdminUsers;
 using PonPon.Modules.Identity.Domain.Customers;
 using PonPon.Modules.Identity.Domain.Users;
 using PonPon.Shared.Application.Abstractions;
@@ -37,6 +38,10 @@ public sealed class JwtTokenService : IJwtTokenService
 
     public (string Token, DateTime ExpiresAtUtc) GenerateAdminAccessToken(User user, IReadOnlyCollection<string> roles)
     {
+        var tokenRoles = roles.Contains(AdminUserManagementService.OwnerRole)
+            ? roles.Concat([AdminUserManagementService.AdminRole]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            : roles;
+        var permissions = AdminUserManagementService.ParsePermissions(user.PermissionsJson);
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
@@ -44,8 +49,9 @@ public sealed class JwtTokenService : IJwtTokenService
             new("userId", user.Id.ToString())
         };
 
-        claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+        claims.AddRange(tokenRoles.Select(role => new Claim(ClaimTypes.Role, role)));
         claims.AddRange(roles.Select(role => new Claim("role", role)));
+        claims.AddRange(permissions.Select(permission => new Claim("permission", permission)));
         return GenerateToken(claims);
     }
 

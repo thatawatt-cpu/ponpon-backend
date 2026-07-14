@@ -1,5 +1,5 @@
-﻿using PonPon.Modules.Identity.Application.Abstractions;
-using PonPon.Modules.Identity.Domain.RefreshTokens;
+using PonPon.Modules.Identity.Application.Abstractions;
+using PonPon.Modules.Identity.Application.AdminUsers;
 using PonPon.Modules.Identity.Domain.Users;
 using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
@@ -16,7 +16,13 @@ public sealed class AdminLoginHandler
     private readonly IUnitOfWork _unitOfWork;
     private readonly AdminLoginValidator _validator = new();
 
-    public AdminLoginHandler(IUserRepository users, IRefreshTokenRepository refreshTokens, IPasswordHasher passwordHasher, IJwtTokenService jwtTokenService, IDateTimeProvider clock, IUnitOfWork unitOfWork)
+    public AdminLoginHandler(
+        IUserRepository users,
+        IRefreshTokenRepository refreshTokens,
+        IPasswordHasher passwordHasher,
+        IJwtTokenService jwtTokenService,
+        IDateTimeProvider clock,
+        IUnitOfWork unitOfWork)
     {
         _users = users;
         _refreshTokens = refreshTokens;
@@ -26,7 +32,9 @@ public sealed class AdminLoginHandler
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<AdminLoginResponse> HandleAsync(AdminLoginCommand command, CancellationToken cancellationToken = default)
+    public async Task<AdminLoginResponse> HandleAsync(
+        AdminLoginCommand command,
+        CancellationToken cancellationToken = default)
     {
         var validation = await _validator.ValidateAsync(command, cancellationToken);
         if (!validation.IsValid)
@@ -35,18 +43,35 @@ public sealed class AdminLoginHandler
         }
 
         var user = await _users.GetByEmailAsync(command.Email, cancellationToken);
-        if (user is null || user.Status != UserStatus.Active || !_passwordHasher.Verify(command.Password, user.PasswordHash))
+        if (user is null
+            || user.Status != UserStatus.Active
+            || !_passwordHasher.Verify(command.Password, user.PasswordHash))
         {
             throw new UnauthorizedException("Invalid email or password.");
         }
 
         user.MarkLoggedIn(_clock.UtcNow);
         var roles = user.UserRoles.Select(x => x.Role.Name).ToArray();
+        var role = roles.Contains(AdminUserManagementService.OwnerRole)
+            ? AdminUserManagementService.OwnerRole
+            : roles.FirstOrDefault() ?? AdminUserManagementService.StaffRole;
+        var permissions = AdminUserManagementService.ParsePermissions(user.PermissionsJson);
         var accessToken = _jwtTokenService.GenerateAdminAccessToken(user, roles);
         var refreshToken = _jwtTokenService.GenerateRefreshToken();
-        await _refreshTokens.AddAsync(new PonPon.Modules.Identity.Domain.RefreshTokens.RefreshToken(_jwtTokenService.HashRefreshToken(refreshToken), user.Id, "Admin", _jwtTokenService.GetRefreshTokenExpiresAtUtc(), _clock.UtcNow), cancellationToken);
+        await _refreshTokens.AddAsync(
+            new Domain.RefreshTokens.RefreshToken(
+                _jwtTokenService.HashRefreshToken(refreshToken),
+                user.Id,
+                "Admin",
+                _jwtTokenService.GetRefreshTokenExpiresAtUtc(),
+                _clock.UtcNow),
+            cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return new AdminLoginResponse(accessToken.Token, refreshToken, accessToken.ExpiresAtUtc, new AdminProfileResponse(user.Id, user.Email, user.DisplayName, roles));
+        return new AdminLoginResponse(
+            accessToken.Token,
+            refreshToken,
+            accessToken.ExpiresAtUtc,
+            new AdminProfileResponse(user.Id, user.Email, user.DisplayName, role, permissions, roles));
     }
 }

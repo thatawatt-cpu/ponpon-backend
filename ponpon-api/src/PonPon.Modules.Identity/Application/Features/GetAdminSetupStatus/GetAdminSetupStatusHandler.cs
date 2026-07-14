@@ -1,12 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using PonPon.Modules.Identity.Application.AdminUsers;
 using PonPon.Modules.Identity.Infrastructure.Persistence;
 
 namespace PonPon.Modules.Identity.Application.Features.GetAdminSetupStatus;
 
 public sealed class GetAdminSetupStatusHandler
 {
-    private const string AdminRoleName = "Admin";
-
     private readonly IdentityDbContext _dbContext;
 
     public GetAdminSetupStatusHandler(IdentityDbContext dbContext)
@@ -18,7 +17,10 @@ public sealed class GetAdminSetupStatusHandler
     {
         var hasAdmin = await _dbContext.UserRoles
             .AsNoTracking()
-            .AnyAsync(x => x.Role.Name == AdminRoleName, cancellationToken);
+            .AnyAsync(
+                x => x.Role.Name == AdminUserManagementService.OwnerRole
+                     || x.Role.Name == AdminUserManagementService.AdminRole,
+                cancellationToken);
 
         return new AdminSetupStatusResponse(hasAdmin);
     }

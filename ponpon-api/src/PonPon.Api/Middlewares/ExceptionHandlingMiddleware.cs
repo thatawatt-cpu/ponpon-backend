@@ -30,6 +30,10 @@ public sealed class ExceptionHandlingMiddleware
         {
             await WriteErrorAsync(context, StatusCodes.Status401Unauthorized, "unauthorized", ex.Message);
         }
+        catch (ForbiddenException ex)
+        {
+            await WriteErrorAsync(context, StatusCodes.Status403Forbidden, ex.ErrorCode, ex.Message);
+        }
         catch (NotFoundException ex)
         {
             await WriteErrorAsync(context, StatusCodes.Status404NotFound, "not_found", ex.Message);

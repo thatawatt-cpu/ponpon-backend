@@ -14,6 +14,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.PasswordHash).HasMaxLength(256).IsRequired();
         builder.Property(x => x.DisplayName).HasMaxLength(256).IsRequired();
+        builder.Property(x => x.PermissionsJson).HasColumnType("jsonb").IsRequired();
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
         builder.HasIndex(x => x.Email).IsUnique();
     }

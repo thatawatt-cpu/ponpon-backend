@@ -18,6 +18,7 @@ public sealed class IdentityDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
+    public DbSet<AdminUserAuditLog> AdminUserAuditLogs => Set<AdminUserAuditLog>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

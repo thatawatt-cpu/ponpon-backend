@@ -54,6 +54,9 @@ public sealed class RefreshTokenHandler
 
     private (string Token, DateTime ExpiresAtUtc) CreateAdminAccessToken(Domain.Users.User user)
     {
+        if (user.Status != Domain.Users.UserStatus.Active)
+            throw new UnauthorizedException("Admin user is disabled.");
+
         return _jwtTokenService.GenerateAdminAccessToken(user, user.UserRoles.Select(x => x.Role.Name).ToArray());
     }
 }
