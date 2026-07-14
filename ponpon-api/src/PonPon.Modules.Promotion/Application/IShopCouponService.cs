@@ -45,4 +45,11 @@ public sealed record ShopCouponResponse(
     bool CanClaim,
     DateTime? ClaimedAtUtc,
     IReadOnlyCollection<string> ScopeLabels,
-    IReadOnlyCollection<string> ConditionLabels);
+    IReadOnlyCollection<string> ConditionLabels,
+    bool IsActive,
+    bool CanUse,
+    bool IsExpired,
+    int? RemainingCustomerUses,
+    bool IsQuotaExhausted,
+    string? UnavailableReasonCode,
+    string? UnavailableReason);

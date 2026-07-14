@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using PonPon.Modules.Ordering.Application.Abstractions;
 using PonPon.Modules.Ordering.Application.Features.Orders.ApproveManualRefund;
@@ -9,7 +10,9 @@ using PonPon.Modules.Ordering.Application.Features.Orders.GetOrders;
 using PonPon.Modules.Ordering.Application.Features.Orders.SyncOrdersFromZort;
 using PonPon.Modules.Ordering.Application.Features.Orders.ReturnOrder;
 using PonPon.Modules.Ordering.Domain.SyncRuns;
+using PonPon.Modules.Ordering.Infrastructure.Persistence;
 using PonPon.Shared.Application.Abstractions;
+using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Ordering.Controllers;
 
@@ -68,7 +71,7 @@ public sealed class AdminOrdersController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyCollection<OrderListItemResponse>>> GetOrders(
+    public async Task<ActionResult<OrderListResponse>> GetOrders(
         [FromQuery] GetOrdersRequest request,
         [FromServices] GetOrdersHandler handler,
         CancellationToken cancellationToken)
@@ -80,9 +83,55 @@ public sealed class AdminOrdersController : ControllerBase
                 request.PaymentStatus,
                 request.ReturnRequestStatus,
                 request.RefundRequestStatus,
+                request.DateFrom,
+                request.DateTo,
+                request.ShippingChannel,
+                request.SalesChannel,
+                request.SortBy,
+                request.SortDirection,
                 request.Page,
                 request.PageSize),
             cancellationToken));
+    }
+
+    [HttpPost("bulk/export")]
+    public async Task<ActionResult<OrderBulkExportResponse>> BulkExport(
+        [FromBody] OrderBulkExportRequest request,
+        [FromServices] OrderingDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (request.OrderIds.Count == 0)
+            throw new BadRequestException("At least one order id is required.");
+        if (request.OrderIds.Count > 500)
+            throw new BadRequestException("Cannot export more than 500 orders at a time.");
+
+        var orderIds = request.OrderIds.Distinct().ToArray();
+        var orders = await dbContext.Orders
+            .AsNoTracking()
+            .Where(x => orderIds.Contains(x.Id))
+            .OrderByDescending(x => x.OrderDate ?? x.ZortCreatedAt ?? x.CreatedAtUtc)
+            .Select(x => new OrderBulkExportItemResponse(
+                x.Id,
+                x.Number,
+                x.ZortOrderId,
+                x.CustomerName,
+                x.CustomerPhone,
+                x.CustomerEmail,
+                x.Status,
+                x.PaymentStatus,
+                x.Amount,
+                x.DiscountAmount,
+                x.ShippingAmount,
+                x.PaymentAmount,
+                x.ShippingChannel,
+                x.TrackingNo,
+                x.SalesChannel,
+                x.OrderDate,
+                x.CreatedAtUtc,
+                x.LastSyncedAt))
+            .ToArrayAsync(cancellationToken);
+
+        return Ok(new OrderBulkExportResponse(orders));
     }
 
     [HttpPost("{id:guid}/cancel")]
@@ -151,3 +200,27 @@ public sealed class AdminOrdersController : ControllerBase
 }
 
 public sealed record OrderSyncQueuedResponse(Guid SyncRunId, string BackgroundJobId, string Status);
+
+public sealed record OrderBulkExportRequest(IReadOnlyCollection<Guid> OrderIds);
+
+public sealed record OrderBulkExportResponse(IReadOnlyCollection<OrderBulkExportItemResponse> Items);
+
+public sealed record OrderBulkExportItemResponse(
+    Guid Id,
+    string Number,
+    long ZortOrderId,
+    string? CustomerName,
+    string? CustomerPhone,
+    string? CustomerEmail,
+    string Status,
+    string PaymentStatus,
+    decimal Amount,
+    decimal DiscountAmount,
+    decimal ShippingAmount,
+    decimal PaymentAmount,
+    string? ShippingChannel,
+    string? TrackingNo,
+    string SalesChannel,
+    DateTime? OrderDate,
+    DateTime CreatedAtUtc,
+    DateTime LastSyncedAt);

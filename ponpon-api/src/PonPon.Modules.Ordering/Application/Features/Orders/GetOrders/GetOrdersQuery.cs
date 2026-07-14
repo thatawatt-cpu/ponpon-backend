@@ -6,5 +6,11 @@ public sealed record GetOrdersQuery(
     ZortPaymentStatus? PaymentStatus,
     string? ReturnRequestStatus,
     string? RefundRequestStatus,
+    DateTime? DateFrom,
+    DateTime? DateTo,
+    string? ShippingChannel,
+    string? SalesChannel,
+    string? SortBy,
+    string? SortDirection,
     int Page = 1,
     int PageSize = 20);

@@ -25,7 +25,7 @@ public sealed class SupabaseStorageService : ISupabaseStorageService
         var options = await ResolveOptionsAsync(cancellationToken);
         EnsureConfigured(options);
         var uploadUrl = $"{options.Url.TrimEnd('/')}/storage/v1/object/{options.StorageBucket}/{path}";
-        var publicUrl = $"{options.Url.TrimEnd('/')}/storage/v1/object/public/{options.StorageBucket}/{path}";
+        var publicUrl = BuildPublicUrl(options, path);
 
         using var content = new StreamContent(fileStream);
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
@@ -39,6 +39,13 @@ public sealed class SupabaseStorageService : ISupabaseStorageService
         response.EnsureSuccessStatusCode();
 
         return publicUrl;
+    }
+
+    public async Task<string> GetPublicUrlAsync(string path, CancellationToken cancellationToken = default)
+    {
+        var options = await ResolveOptionsAsync(cancellationToken);
+        EnsureConfigured(options);
+        return BuildPublicUrl(options, path);
     }
 
     public async Task DeleteAsync(string path, CancellationToken cancellationToken = default)
@@ -76,6 +83,9 @@ public sealed class SupabaseStorageService : ISupabaseStorageService
         => settings.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
             ? value
             : fallback;
+
+    private static string BuildPublicUrl(ResolvedSupabaseOptions options, string path)
+        => $"{options.Url.TrimEnd('/')}/storage/v1/object/public/{options.StorageBucket}/{path.TrimStart('/')}";
 
     private sealed record ResolvedSupabaseOptions(string Url, string ServiceRoleKey, string StorageBucket);
 }

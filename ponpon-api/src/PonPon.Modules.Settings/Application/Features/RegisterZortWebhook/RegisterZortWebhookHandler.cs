@@ -1,6 +1,7 @@
+using Microsoft.Extensions.Configuration;
 using PonPon.Modules.Settings.Application.Abstractions;
-using PonPon.Modules.Settings.Domain;
 using PonPon.Shared.Application.Abstractions;
+using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Settings.Application.Features.RegisterZortWebhook;
 
@@ -10,39 +11,37 @@ public sealed class RegisterZortWebhookHandler
 
     private readonly IZortWebhookRegistrar _registrar;
     private readonly ISettingsRepository _settings;
-    private readonly ISettingsUnitOfWork _unitOfWork;
-    private readonly IDateTimeProvider _clock;
+    private readonly IConfiguration _configuration;
 
     public RegisterZortWebhookHandler(
         IZortWebhookRegistrar registrar,
         ISettingsRepository settings,
-        ISettingsUnitOfWork unitOfWork,
-        IDateTimeProvider clock)
+        IConfiguration configuration)
     {
         _registrar = registrar;
         _settings = settings;
-        _unitOfWork = unitOfWork;
-        _clock = clock;
+        _configuration = configuration;
     }
 
-    public async Task HandleAsync(RegisterZortWebhookCommand command, CancellationToken cancellationToken = default)
+    public async Task HandleAsync(CancellationToken cancellationToken = default)
     {
-        await _registrar.RegisterAsync(command.BaseUrl, command.Key1, command.Key2, command.Key3, cancellationToken);
+        var settings = (await _settings.GetByGroupAsync(Group, cancellationToken))
+            .ToDictionary(x => x.Key, x => x.Value);
+        var baseUrl = ResolveValue(settings, "WebhookBaseUrl");
+        var key1 = ResolveValue(settings, "WebhookKey1");
+        var key2 = ResolveValue(settings, "WebhookKey2");
+        var key3 = ResolveValue(settings, "WebhookKey3");
 
-        await UpsertAsync("WebhookBaseUrl", command.BaseUrl, cancellationToken);
-        await UpsertAsync("WebhookKey1", command.Key1, cancellationToken);
-        await UpsertAsync("WebhookKey2", command.Key2, cancellationToken);
-        await UpsertAsync("WebhookKey3", command.Key3, cancellationToken);
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(key1))
+        {
+            throw new BadRequestException("ZORT webhook settings are not configured.");
+        }
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _registrar.RegisterAsync(baseUrl, key1, key2, key3, cancellationToken);
     }
 
-    private async Task UpsertAsync(string key, string? value, CancellationToken cancellationToken)
-    {
-        var existing = await _settings.GetAsync(Group, key, cancellationToken);
-        if (existing is null)
-            await _settings.AddAsync(Setting.Create(Group, key, value, _clock.UtcNow), cancellationToken);
-        else
-            existing.Update(value, _clock.UtcNow);
-    }
+    private string? ResolveValue(IReadOnlyDictionary<string, string?> settings, string key)
+        => settings.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : _configuration[$"{Group}:{key}"];
 }

@@ -1,5 +1,13 @@
 namespace PonPon.Modules.Ordering.Application.Features.Orders.GetOrders;
 
+public sealed record OrderListResponse(
+    IReadOnlyCollection<OrderListItemResponse> Items,
+    int Total,
+    int Page,
+    int PageSize,
+    IReadOnlyDictionary<string, int> StatusCounts,
+    DateTime? LastSuccessfulSyncAt);
+
 public sealed record OrderListItemResponse(
     Guid Id,
     long ZortOrderId,
@@ -16,4 +24,6 @@ public sealed record OrderListItemResponse(
     string SalesChannel,
     DateTime LastSyncedAt,
     string? ReturnRequestStatus,
-    string? RefundRequestStatus);
+    string? RefundRequestStatus,
+    IReadOnlyCollection<string> AllowedActions,
+    bool CanCancel);

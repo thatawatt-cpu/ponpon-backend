@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using PonPon.Modules.Catalog.Infrastructure.ExternalServices.Supabase;
 using PonPon.Modules.Reviews.Application;
+using PonPon.Modules.Reviews.Infrastructure.Persistence;
 using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
 
@@ -164,6 +167,42 @@ public sealed class ReviewsController : ControllerBase
         return Ok(await service.GetMediaStatusAsync(mediaId, cancellationToken));
     }
 
+    [AllowAnonymous]
+    [HttpGet("api/reviews/media/{mediaId:guid}/file")]
+    public async Task<IActionResult> GetMediaFile(
+        Guid mediaId,
+        [FromServices] ReviewsDbContext reviews,
+        [FromServices] ISupabaseStorageService storage,
+        [FromServices] IHttpClientFactory httpClientFactory,
+        CancellationToken cancellationToken)
+    {
+        var media = await reviews.ReviewMedia
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == mediaId && x.DeletedAtUtc == null, cancellationToken)
+            ?? throw new NotFoundException("Review media was not found.");
+
+        if (string.IsNullOrWhiteSpace(media.MimeType))
+        {
+            throw new NotFoundException("Review media content type was not found.");
+        }
+
+        var url = media.Url.Trim();
+        if (!IsAbsoluteHttpUrl(url))
+        {
+            url = await storage.GetPublicUrlAsync(url, cancellationToken);
+        }
+
+        using var response = await httpClientFactory.CreateClient().GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new NotFoundException("Review media file was not found.");
+        }
+
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        Response.Headers.CacheControl = "public, max-age=3600";
+        return File(bytes, media.MimeType);
+    }
+
     private static bool TryGetCustomerId(ICurrentUser currentUser, out Guid customerId)
     {
         customerId = currentUser.CustomerId.GetValueOrDefault();
@@ -192,4 +231,8 @@ public sealed class ReviewsController : ControllerBase
             media.DurationSec,
             media.SortOrder);
     }
+
+    private static bool IsAbsoluteHttpUrl(string url)
+        => Uri.TryCreate(url, UriKind.Absolute, out var uri)
+           && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 }

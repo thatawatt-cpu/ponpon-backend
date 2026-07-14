@@ -16,6 +16,14 @@ public sealed class OrderSyncRunRepository : IOrderSyncRunRepository
     public Task<OrderSyncRun?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         => _dbContext.OrderSyncRuns.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
+    public Task<DateTime?> GetLastSuccessfulCompletedAtAsync(CancellationToken cancellationToken = default)
+        => _dbContext.OrderSyncRuns
+            .AsNoTracking()
+            .Where(x => x.Status == OrderSyncRunStatus.Succeeded && x.CompletedAtUtc != null)
+            .OrderByDescending(x => x.CompletedAtUtc)
+            .Select(x => x.CompletedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task AddAsync(OrderSyncRun syncRun, CancellationToken cancellationToken = default)
         => await _dbContext.OrderSyncRuns.AddAsync(syncRun, cancellationToken);
 }

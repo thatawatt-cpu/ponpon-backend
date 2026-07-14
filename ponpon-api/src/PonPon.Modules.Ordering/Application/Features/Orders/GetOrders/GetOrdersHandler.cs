@@ -8,13 +8,15 @@ namespace PonPon.Modules.Ordering.Application.Features.Orders.GetOrders;
 public sealed class GetOrdersHandler
 {
     private readonly IOrderRepository _orders;
+    private readonly IOrderSyncRunRepository _syncRuns;
 
-    public GetOrdersHandler(IOrderRepository orders)
+    public GetOrdersHandler(IOrderRepository orders, IOrderSyncRunRepository syncRuns)
     {
         _orders = orders;
+        _syncRuns = syncRuns;
     }
 
-    public async Task<IReadOnlyCollection<OrderListItemResponse>> HandleAsync(
+    public async Task<OrderListResponse> HandleAsync(
         GetOrdersQuery query,
         CancellationToken cancellationToken = default)
     {
@@ -28,11 +30,18 @@ public sealed class GetOrdersHandler
             query.PaymentStatus?.ToString(),
             returnRequestStatus,
             refundRequestStatus,
+            query.DateFrom,
+            query.DateTo,
+            NormalizeFilter(query.ShippingChannel),
+            NormalizeFilter(query.SalesChannel),
+            query.SortBy,
+            query.SortDirection,
             page,
             pageSize,
             cancellationToken);
+        var lastSuccessfulSyncAt = await _syncRuns.GetLastSuccessfulCompletedAtAsync(cancellationToken);
 
-        return orders.Select(item => new OrderListItemResponse(
+        var items = orders.Items.Select(item => new OrderListItemResponse(
             item.Order.Id,
             item.Order.ZortOrderId,
             item.Order.Number,
@@ -48,8 +57,41 @@ public sealed class GetOrdersHandler
             item.Order.SalesChannel,
             item.Order.LastSyncedAt,
             item.ReturnRequestStatus,
-            item.Order.OmiseRefundStatus)).ToArray();
+            item.Order.OmiseRefundStatus,
+            GetAllowedActions(item.Order),
+            CanCancel(item.Order))).ToArray();
+
+        return new OrderListResponse(
+            items,
+            orders.Total,
+            page,
+            pageSize,
+            orders.StatusCounts,
+            lastSuccessfulSyncAt);
     }
+
+    private static string? NormalizeFilter(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static IReadOnlyCollection<string> GetAllowedActions(Order order)
+    {
+        var actions = new List<string>();
+        if (CanCancel(order))
+        {
+            actions.Add("cancel");
+        }
+
+        if (string.Equals(order.OmiseRefundStatus, OrderRefundStatus.ManualRefundPending, StringComparison.OrdinalIgnoreCase))
+        {
+            actions.Add("approveManualRefund");
+        }
+
+        return actions;
+    }
+
+    private static bool CanCancel(Order order)
+        => !string.Equals(order.Status, "Voided", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(order.Status, ((int)ZortOrderStatus.Voided).ToString(), StringComparison.OrdinalIgnoreCase);
 
     private static string? NormalizeReturnRequestStatus(string? status)
     {

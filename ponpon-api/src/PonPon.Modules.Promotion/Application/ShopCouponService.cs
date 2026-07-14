@@ -43,9 +43,9 @@ public sealed class ShopCouponService : IShopCouponService
             .Select(coupon => ToResponse(
                 coupon,
                 claims.GetValueOrDefault(coupon.Id),
-                CanClaim(coupon, claims.ContainsKey(coupon.Id), usageCounts.GetValueOrDefault(coupon.Id)),
+                BuildAvailability(coupon, claims.ContainsKey(coupon.Id), usageCounts.GetValueOrDefault(coupon.Id), now),
                 now))
-            .OrderByDescending(x => x.CanClaim)
+            .OrderByDescending(x => x.CanUse)
             .ThenBy(x => x.MinimumSubtotal)
             .ThenBy(x => x.Code)
             .ToArray();
@@ -79,18 +79,23 @@ public sealed class ShopCouponService : IShopCouponService
             .FirstOrDefaultAsync(
                 x => x.CouponId == couponId && x.CustomerId == customerId,
                 cancellationToken);
-        if (existingClaim is not null)
-        {
-            await transaction.CommitAsync(cancellationToken);
-            return ToResponse(coupon, existingClaim, canClaim: false, now);
-        }
-
         var usageCount = await _db.CouponUsages.CountAsync(
             x => x.CouponId == couponId
                  && x.CustomerId == customerId
                  && !x.IsReleased,
             cancellationToken);
-        if (!CanClaim(coupon, isClaimed: false, usageCount))
+        if (existingClaim is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return ToResponse(
+                coupon,
+                existingClaim,
+                BuildAvailability(coupon, isClaimed: true, customerUsageCount: usageCount, now),
+                now);
+        }
+
+        var availability = BuildAvailability(coupon, isClaimed: false, usageCount, now);
+        if (!availability.CanClaim)
             throw new BadRequestException("Coupon cannot be claimed.");
 
         var claim = CouponClaim.Create(couponId, customerId, now);
@@ -98,7 +103,11 @@ public sealed class ShopCouponService : IShopCouponService
         await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return ToResponse(coupon, claim, canClaim: false, now);
+        return ToResponse(
+            coupon,
+            claim,
+            BuildAvailability(coupon, isClaimed: true, usageCount, now),
+            now);
     }
 
     public async Task<IReadOnlyCollection<ShopCouponResponse>> GetMyCouponsAsync(
@@ -123,7 +132,7 @@ public sealed class ShopCouponService : IShopCouponService
             .Select(coupon => ToResponse(
                 coupon,
                 claims.GetValueOrDefault(coupon.Id),
-                CanClaim(coupon, isClaimed: true, usageCounts.GetValueOrDefault(coupon.Id)),
+                BuildAvailability(coupon, isClaimed: true, usageCounts.GetValueOrDefault(coupon.Id), now),
                 now))
             .OrderBy(x => x.EndsAtUtc ?? DateTime.MaxValue)
             .ThenBy(x => x.Code)
@@ -150,15 +159,10 @@ public sealed class ShopCouponService : IShopCouponService
             .Include(x => x.CustomerScopes)
             .Include(x => x.Conditions)
             .Where(x => x.IsActive
-                        && (!x.StartsAtUtc.HasValue || now >= x.StartsAtUtc.Value)
-                        && (!x.EndsAtUtc.HasValue || now <= x.EndsAtUtc.Value)
-                        && (!x.MaximumTotalUses.HasValue || x.UsedCount < x.MaximumTotalUses.Value)
                         && (!x.CampaignId.HasValue
                             || _db.CouponCampaigns.Any(c =>
                                 c.Id == x.CampaignId.Value
-                                && c.IsActive
-                                && (!c.StartsAtUtc.HasValue || now >= c.StartsAtUtc.Value)
-                                && (!c.EndsAtUtc.HasValue || now <= c.EndsAtUtc.Value))))
+                                && c.IsActive)))
             .OrderBy(x => x.Code)
             .ToArrayAsync(cancellationToken);
 
@@ -226,18 +230,6 @@ public sealed class ShopCouponService : IShopCouponService
             });
     }
 
-    private static bool CanClaim(Coupon coupon, bool isClaimed, int customerUsageCount)
-    {
-        if (isClaimed)
-            return false;
-        if (coupon.MaximumTotalUses.HasValue && coupon.UsedCount >= coupon.MaximumTotalUses.Value)
-            return false;
-        if (coupon.MaximumUsesPerCustomer.HasValue && customerUsageCount >= coupon.MaximumUsesPerCustomer.Value)
-            return false;
-
-        return true;
-    }
-
     private async Task<Dictionary<Guid, CouponClaim>> GetClaimsAsync(
         Guid customerId,
         IReadOnlyCollection<Guid> couponIds,
@@ -283,7 +275,7 @@ public sealed class ShopCouponService : IShopCouponService
     private static ShopCouponResponse ToResponse(
         Coupon coupon,
         CouponClaim? claim,
-        bool canClaim,
+        CouponAvailability availability,
         DateTime now)
     {
         var remainingTotalUses = coupon.MaximumTotalUses.HasValue
@@ -306,11 +298,111 @@ public sealed class ShopCouponService : IShopCouponService
             coupon.UsedCount,
             remainingTotalUses,
             claim is not null,
-            canClaim && (!coupon.StartsAtUtc.HasValue || now >= coupon.StartsAtUtc.Value),
+            availability.CanClaim,
             claim?.ClaimedAtUtc,
             coupon.Scopes.Select(ToScopeLabel).ToArray(),
-            coupon.Conditions.Select(x => $"{x.Type}:{x.Value}").ToArray());
+            coupon.Conditions.Select(x => $"{x.Type}:{x.Value}").ToArray(),
+            coupon.IsActive,
+            availability.CanUse,
+            availability.IsExpired,
+            availability.RemainingCustomerUses,
+            availability.IsQuotaExhausted,
+            availability.UnavailableReasonCode,
+            availability.UnavailableReason);
     }
+
+    private static CouponAvailability BuildAvailability(
+        Coupon coupon,
+        bool isClaimed,
+        int customerUsageCount,
+        DateTime now)
+    {
+        var remainingTotalUses = coupon.MaximumTotalUses.HasValue
+            ? Math.Max(0, coupon.MaximumTotalUses.Value - coupon.UsedCount)
+            : (int?)null;
+        var remainingCustomerUses = coupon.MaximumUsesPerCustomer.HasValue
+            ? Math.Max(0, coupon.MaximumUsesPerCustomer.Value - customerUsageCount)
+            : (int?)null;
+        var isExpired = coupon.EndsAtUtc.HasValue && now > coupon.EndsAtUtc.Value;
+        var isNotStarted = coupon.StartsAtUtc.HasValue && now < coupon.StartsAtUtc.Value;
+        var isTotalQuotaExhausted = remainingTotalUses == 0;
+        var isCustomerQuotaExhausted = remainingCustomerUses == 0;
+        var isQuotaExhausted = isTotalQuotaExhausted || isCustomerQuotaExhausted;
+
+        if (!coupon.IsActive)
+        {
+            return Unavailable(
+                remainingCustomerUses,
+                isExpired,
+                isQuotaExhausted,
+                "coupon_inactive",
+                "คูปองนี้ไม่เปิดใช้งาน");
+        }
+
+        if (isNotStarted)
+        {
+            return Unavailable(
+                remainingCustomerUses,
+                isExpired,
+                isQuotaExhausted,
+                "coupon_not_started",
+                "คูปองนี้ยังไม่เริ่มใช้งาน");
+        }
+
+        if (isExpired)
+        {
+            return Unavailable(
+                remainingCustomerUses,
+                true,
+                isQuotaExhausted,
+                "coupon_expired",
+                "คูปองนี้หมดอายุแล้ว");
+        }
+
+        if (isTotalQuotaExhausted)
+        {
+            return Unavailable(
+                remainingCustomerUses,
+                false,
+                true,
+                "coupon_quota_exhausted",
+                "คูปองนี้หมดสิทธิ์แล้ว");
+        }
+
+        if (isCustomerQuotaExhausted)
+        {
+            return Unavailable(
+                remainingCustomerUses,
+                false,
+                true,
+                "coupon_customer_quota_exhausted",
+                "คุณใช้คูปองนี้ครบสิทธิ์แล้ว");
+        }
+
+        return new CouponAvailability(
+            CanClaim: !isClaimed,
+            CanUse: true,
+            IsExpired: false,
+            RemainingCustomerUses: remainingCustomerUses,
+            IsQuotaExhausted: false,
+            UnavailableReasonCode: null,
+            UnavailableReason: null);
+    }
+
+    private static CouponAvailability Unavailable(
+        int? remainingCustomerUses,
+        bool isExpired,
+        bool isQuotaExhausted,
+        string reasonCode,
+        string reason)
+        => new(
+            CanClaim: false,
+            CanUse: false,
+            IsExpired: isExpired,
+            RemainingCustomerUses: remainingCustomerUses,
+            IsQuotaExhausted: isQuotaExhausted,
+            UnavailableReasonCode: reasonCode,
+            UnavailableReason: reason);
 
     private static string ToScopeLabel(CouponScope scope)
         => scope.Type switch
@@ -356,4 +448,13 @@ public sealed class ShopCouponService : IShopCouponService
             query.ZortCategoryId?.ToString() ?? "-",
             Normalize(query.CategoryName) ?? "-");
     }
+
+    private sealed record CouponAvailability(
+        bool CanClaim,
+        bool CanUse,
+        bool IsExpired,
+        int? RemainingCustomerUses,
+        bool IsQuotaExhausted,
+        string? UnavailableReasonCode,
+        string? UnavailableReason);
 }

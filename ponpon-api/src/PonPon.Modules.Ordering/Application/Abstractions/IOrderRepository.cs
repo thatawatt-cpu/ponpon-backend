@@ -20,6 +20,11 @@ public sealed record AdminOrderListItem(
     Order Order,
     string? ReturnRequestStatus);
 
+public sealed record AdminOrderListProjection(
+    IReadOnlyCollection<AdminOrderListItem> Items,
+    int Total,
+    IReadOnlyDictionary<string, int> StatusCounts);
+
 public interface IOrderPaymentLock : IAsyncDisposable
 {
     Task CompleteAsync(CancellationToken cancellationToken = default);
@@ -27,12 +32,18 @@ public interface IOrderPaymentLock : IAsyncDisposable
 
 public interface IOrderRepository
 {
-    Task<IReadOnlyCollection<AdminOrderListItem>> GetAsync(
+    Task<AdminOrderListProjection> GetAsync(
         string? keyword,
         string? status,
         string? paymentStatus,
         string? returnRequestStatus,
         string? refundRequestStatus,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        string? shippingChannel,
+        string? salesChannel,
+        string? sortBy,
+        string? sortDirection,
         int page,
         int pageSize,
         CancellationToken cancellationToken = default);

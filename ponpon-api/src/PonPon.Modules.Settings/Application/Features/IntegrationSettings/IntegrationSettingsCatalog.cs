@@ -19,7 +19,10 @@ public static class IntegrationSettingsCatalog
             new("ApiKey", "API key", true),
             new("ApiSecret", "API secret", true),
             new("WarehouseCode", "Warehouse code", false),
-            new("WebhookKey", "Webhook key", true)
+            new("WebhookBaseUrl", "Webhook base URL", false),
+            new("WebhookKey1", "Webhook key 1", true),
+            new("WebhookKey2", "Webhook key 2", true),
+            new("WebhookKey3", "Webhook key 3", true)
         ]),
         new("Shippop", "SHIPPOP",
         [

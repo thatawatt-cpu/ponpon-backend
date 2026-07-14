@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 using PonPon.Modules.Settings.Application;
 using PonPon.Modules.Settings.Application.Abstractions;
 using PonPon.Modules.Settings.Application.Features.IntegrationSettings;
-using PonPon.Modules.Settings.Application.Features.GetZortWebhook;
 using PonPon.Modules.Settings.Application.Features.GetZortWebhookFromZort;
 using PonPon.Modules.Settings.Application.Features.RegisterZortWebhook;
 using PonPon.Modules.Settings.Infrastructure.Persistence;
@@ -27,7 +26,6 @@ public static class SettingsModule
 
         services.AddScoped<GetIntegrationSettingsHandler>();
         services.AddScoped<UpdateIntegrationSettingsHandler>();
-        services.AddScoped<GetZortWebhookHandler>();
         services.AddScoped<GetZortWebhookFromZortHandler>();
         services.AddScoped<RegisterZortWebhookHandler>();
 

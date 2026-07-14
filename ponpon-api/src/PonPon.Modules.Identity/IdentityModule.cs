@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PonPon.Modules.Identity.Application.Abstractions;
 using PonPon.Modules.Identity.Application.Features.AdminLogin;
 using PonPon.Modules.Identity.Application.Features.CustomerAddresses;
+using PonPon.Modules.Identity.Application.Features.GetAdminSetupStatus;
 using PonPon.Modules.Identity.Application.Features.GetMe;
 using PonPon.Modules.Identity.Application.Features.LineLogin;
 using PonPon.Modules.Identity.Application.Features.Logout;
@@ -44,6 +45,7 @@ public static class IdentityModule
 
         services.AddScoped<LineLoginHandler>();
         services.AddScoped<AdminLoginHandler>();
+        services.AddScoped<GetAdminSetupStatusHandler>();
         services.AddScoped<RegisterFirstAdminHandler>();
         services.AddScoped<RefreshTokenHandler>();
         services.AddScoped<GetMeHandler>();

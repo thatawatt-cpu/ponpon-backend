@@ -808,8 +808,8 @@ public sealed class ReviewService
         return new ReviewMediaResponse(
             media.Id,
             media.Type,
-            media.Url,
-            media.ThumbnailUrl,
+            ResolveResponseMediaUrl(media),
+            NormalizeOptionalUrl(media.ThumbnailUrl),
             media.DurationSec,
             media.FileSizeBytes,
             media.MimeType,
@@ -818,6 +818,21 @@ public sealed class ReviewService
             media.CreatedAtUtc,
             media.UpdatedAtUtc);
     }
+
+    private static string ResolveResponseMediaUrl(ReviewMedia media)
+    {
+        var url = media.Url.Trim();
+        return IsAbsoluteHttpUrl(url) || url.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
+            ? url
+            : $"/api/reviews/media/{media.Id:D}/file";
+    }
+
+    private static string? NormalizeOptionalUrl(string? url)
+        => string.IsNullOrWhiteSpace(url) ? null : url.Trim();
+
+    private static bool IsAbsoluteHttpUrl(string url)
+        => Uri.TryCreate(url, UriKind.Absolute, out var uri)
+           && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
     private sealed record ReviewableOrderItem(Guid OrderId, Guid ProductId, Guid? VariantId);
     private sealed record CustomerPublicProfile(Guid CustomerId, string DisplayName, string? PictureUrl);

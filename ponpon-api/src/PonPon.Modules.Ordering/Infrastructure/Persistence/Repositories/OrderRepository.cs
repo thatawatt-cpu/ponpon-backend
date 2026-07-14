@@ -40,52 +40,85 @@ public sealed class OrderRepository : IOrderRepository
         return new OrderPaymentLock(transaction);
     }
 
-    public async Task<IReadOnlyCollection<AdminOrderListItem>> GetAsync(
+    public async Task<AdminOrderListProjection> GetAsync(
         string? keyword,
         string? status,
         string? paymentStatus,
         string? returnRequestStatus,
         string? refundRequestStatus,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        string? shippingChannel,
+        string? salesChannel,
+        string? sortBy,
+        string? sortDirection,
         int page,
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        var query = _dbContext.Orders.AsNoTracking().AsQueryable();
+        var baseQuery = _dbContext.Orders.AsNoTracking().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var value = keyword.Trim();
-            query = query.Where(x =>
-                x.Number.Contains(value)
-                || (x.CustomerName != null && x.CustomerName.Contains(value))
-                || (x.CustomerPhone != null && x.CustomerPhone.Contains(value))
-                || (x.TrackingNo != null && x.TrackingNo.Contains(value)));
-        }
-
-        if (!string.IsNullOrWhiteSpace(status))
-        {
-            query = query.Where(x => x.Status == status);
+            var pattern = $"%{value}%";
+            baseQuery = baseQuery.Where(x =>
+                EF.Functions.ILike(x.Number, pattern)
+                || (x.CustomerName != null && EF.Functions.ILike(x.CustomerName, pattern))
+                || (x.CustomerPhone != null && EF.Functions.ILike(x.CustomerPhone, pattern))
+                || (x.TrackingNo != null && EF.Functions.ILike(x.TrackingNo, pattern)));
         }
 
         if (!string.IsNullOrWhiteSpace(paymentStatus))
         {
-            query = query.Where(x => x.PaymentStatus == paymentStatus);
+            baseQuery = baseQuery.Where(x => x.PaymentStatus == paymentStatus);
+        }
+
+        if (dateFrom.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => (x.OrderDate ?? x.ZortCreatedAt ?? x.CreatedAtUtc) >= dateFrom.Value);
+        }
+
+        if (dateTo.HasValue)
+        {
+            baseQuery = baseQuery.Where(x => (x.OrderDate ?? x.ZortCreatedAt ?? x.CreatedAtUtc) <= dateTo.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(shippingChannel))
+        {
+            baseQuery = baseQuery.Where(x => x.ShippingChannel == shippingChannel);
+        }
+
+        if (!string.IsNullOrWhiteSpace(salesChannel))
+        {
+            baseQuery = baseQuery.Where(x => x.SalesChannel == salesChannel);
         }
 
         if (!string.IsNullOrWhiteSpace(returnRequestStatus))
         {
-            query = query.Where(order => _dbContext.OrderReturnRequests.Any(
+            baseQuery = baseQuery.Where(order => _dbContext.OrderReturnRequests.Any(
                 request => request.OrderId == order.Id
                            && request.Status == returnRequestStatus));
         }
 
         if (!string.IsNullOrWhiteSpace(refundRequestStatus))
         {
-            query = query.Where(x => x.OmiseRefundStatus == refundRequestStatus);
+            baseQuery = baseQuery.Where(x => x.OmiseRefundStatus == refundRequestStatus);
         }
 
-        var orders = await query
-            .OrderByDescending(x => x.OrderDate ?? x.ZortCreatedAt ?? x.CreatedAtUtc)
+        var statusCounts = await baseQuery
+            .GroupBy(x => x.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Status, x => x.Count, cancellationToken);
+
+        var query = baseQuery;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            query = query.Where(x => x.Status == status);
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var orders = await ApplySort(query, sortBy, sortDirection)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToArrayAsync(cancellationToken);
@@ -95,13 +128,52 @@ public sealed class OrderRepository : IOrderRepository
             .AsNoTracking()
             .Where(x => orderIds.Contains(x.OrderId))
             .Select(x => new { x.OrderId, x.Status })
-            .ToDictionaryAsync(x => x.OrderId, x => x.Status, cancellationToken);
+            .GroupBy(x => x.OrderId)
+            .ToDictionaryAsync(x => x.Key, x => x.First().Status, cancellationToken);
 
-        return orders
+        var items = orders
             .Select(x => new AdminOrderListItem(
                 x,
                 returnStatuses.GetValueOrDefault(x.Id)))
             .ToArray();
+
+        return new AdminOrderListProjection(items, total, statusCounts);
+    }
+
+    private static IOrderedQueryable<Order> ApplySort(
+        IQueryable<Order> query,
+        string? sortBy,
+        string? sortDirection)
+    {
+        var descending = !string.Equals(sortDirection, "asc", StringComparison.OrdinalIgnoreCase);
+        var normalizedSortBy = string.IsNullOrWhiteSpace(sortBy)
+            ? "orderDate"
+            : sortBy.Trim();
+
+        return normalizedSortBy.ToLowerInvariant() switch
+        {
+            "number" or "ordernumber" => descending
+                ? query.OrderByDescending(x => x.Number)
+                : query.OrderBy(x => x.Number),
+            "customername" => descending
+                ? query.OrderByDescending(x => x.CustomerName)
+                : query.OrderBy(x => x.CustomerName),
+            "paymentamount" or "total" => descending
+                ? query.OrderByDescending(x => x.PaymentAmount)
+                : query.OrderBy(x => x.PaymentAmount),
+            "status" => descending
+                ? query.OrderByDescending(x => x.Status)
+                : query.OrderBy(x => x.Status),
+            "lastsyncedat" => descending
+                ? query.OrderByDescending(x => x.LastSyncedAt)
+                : query.OrderBy(x => x.LastSyncedAt),
+            "createdat" or "createdatutc" => descending
+                ? query.OrderByDescending(x => x.CreatedAtUtc)
+                : query.OrderBy(x => x.CreatedAtUtc),
+            _ => descending
+                ? query.OrderByDescending(x => x.OrderDate ?? x.ZortCreatedAt ?? x.CreatedAtUtc)
+                : query.OrderBy(x => x.OrderDate ?? x.ZortCreatedAt ?? x.CreatedAtUtc)
+        };
     }
 
     public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
