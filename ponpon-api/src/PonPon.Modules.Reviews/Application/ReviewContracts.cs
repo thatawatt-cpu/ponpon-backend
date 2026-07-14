@@ -98,12 +98,110 @@ public sealed record ProductReviewSummaryResponse(
     int Rating5Count);
 
 public sealed record AdminReviewListResponse(
-    IReadOnlyCollection<ReviewResponse> Items,
+    IReadOnlyCollection<AdminReviewListItemResponse> Items,
     int Total,
     int Page,
     int PageSize);
 
+public sealed record AdminReviewListItemResponse(
+    Guid Id,
+    Guid ProductId,
+    Guid? VariantId,
+    Guid OrderId,
+    Guid OrderItemId,
+    Guid UserId,
+    int Rating,
+    string Comment,
+    bool IsAnonymous,
+    string Status,
+    AdminReviewListCustomerResponse? Customer,
+    AdminReviewListProductResponse? Product,
+    IReadOnlyCollection<ReviewMediaResponse> Media,
+    DateTime? EditedAtUtc,
+    DateTime CreatedAtUtc,
+    DateTime? UpdatedAtUtc);
+
+public sealed record AdminReviewListCustomerResponse(
+    Guid Id,
+    string DisplayName,
+    string? PictureUrl);
+
+public sealed record AdminReviewListProductResponse(
+    Guid Id,
+    string Name,
+    string? ImageUrl);
+
 public sealed record UpdateReviewStatusRequest(string Status);
+
+public sealed record BulkUpdateReviewStatusRequest(
+    IReadOnlyCollection<Guid> ReviewIds,
+    string Status);
+
+public sealed record BulkUpdateReviewStatusResponse(
+    int UpdatedCount,
+    string Status);
+
+public sealed record AdminReviewDetailResponse(
+    Guid Id,
+    Guid ProductId,
+    Guid? VariantId,
+    Guid OrderId,
+    Guid OrderItemId,
+    Guid UserId,
+    int Rating,
+    string Comment,
+    bool IsAnonymous,
+    string Status,
+    AdminReviewCustomerResponse? Customer,
+    AdminReviewProductResponse? Product,
+    AdminReviewOrderResponse? Order,
+    AdminReviewOrderItemResponse? OrderItem,
+    string? Sku,
+    IReadOnlyCollection<ReviewMediaResponse> Media,
+    IReadOnlyCollection<AdminReviewActionHistoryItemResponse> ActionHistory,
+    DateTime? EditedAtUtc,
+    DateTime CreatedAtUtc,
+    DateTime? UpdatedAtUtc,
+    DateTime? DeletedAtUtc);
+
+public sealed record AdminReviewCustomerResponse(
+    Guid CustomerId,
+    string DisplayName,
+    string LineUserId,
+    string? PictureUrl,
+    string? Email);
+
+public sealed record AdminReviewProductResponse(
+    Guid ProductId,
+    string Name,
+    string? Slug,
+    string? ImageUrl);
+
+public sealed record AdminReviewOrderResponse(
+    Guid OrderId,
+    string Number,
+    string Status,
+    string PaymentStatus,
+    DateTime? OrderDate,
+    string? CustomerName,
+    string? CustomerPhone);
+
+public sealed record AdminReviewOrderItemResponse(
+    Guid OrderItemId,
+    Guid? ProductId,
+    Guid? VariantId,
+    string Sku,
+    string Name,
+    decimal Quantity,
+    decimal PricePerUnit,
+    decimal TotalPrice,
+    string? ImageUrl);
+
+public sealed record AdminReviewActionHistoryItemResponse(
+    DateTime CreatedAtUtc,
+    string Action,
+    string? Actor,
+    string? Note);
 
 public sealed record ReviewMediaUploadUrlRequest(
     Guid ReviewId,

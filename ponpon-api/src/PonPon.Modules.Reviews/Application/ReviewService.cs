@@ -1,5 +1,8 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using PonPon.Modules.Catalog.Infrastructure.ExternalServices.Supabase;
+using PonPon.Modules.Catalog.Infrastructure.Persistence;
 using PonPon.Modules.Identity.Infrastructure.Persistence;
 using PonPon.Modules.Ordering.Application;
 using PonPon.Modules.Ordering.Infrastructure.Persistence;
@@ -21,6 +24,8 @@ public sealed class ReviewService
     private const int MaxVideos = 3;
     private const int MinVideoDurationSec = 1;
     private const int MaxVideoDurationSec = 60;
+    private const string VideoThumbnailMimeType = "image/jpeg";
+    private const string VideoThumbnailExtension = ".jpg";
     private static readonly HashSet<string> SupportedImageMimeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "image/jpeg",
@@ -38,6 +43,8 @@ public sealed class ReviewService
     private readonly ReviewsDbContext _reviews;
     private readonly OrderingDbContext _ordering;
     private readonly IdentityDbContext _identity;
+    private readonly CatalogDbContext _catalog;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly IDateTimeProvider _clock;
     private readonly ISupabaseStorageService _storage;
 
@@ -45,12 +52,16 @@ public sealed class ReviewService
         ReviewsDbContext reviews,
         OrderingDbContext ordering,
         IdentityDbContext identity,
+        CatalogDbContext catalog,
+        IHttpClientFactory httpClientFactory,
         IDateTimeProvider clock,
         ISupabaseStorageService storage)
     {
         _reviews = reviews;
         _ordering = ordering;
         _identity = identity;
+        _catalog = catalog;
+        _httpClientFactory = httpClientFactory;
         _clock = clock;
         _storage = storage;
     }
@@ -146,15 +157,43 @@ public sealed class ReviewService
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToArrayAsync(cancellationToken);
+        var customerIds = reviews
+            .Select(x => x.UserId)
+            .Distinct()
+            .ToArray();
+        var customers = await _identity.Customers
+            .AsNoTracking()
+            .Where(x => customerIds.Contains(x.Id))
+            .Select(x => new AdminReviewListCustomerResponse(
+                x.Id,
+                x.LineProfile.DisplayName,
+                x.LineProfile.PictureUrl))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+
+        var productIds = reviews
+            .Select(x => x.ProductId)
+            .Distinct()
+            .ToArray();
+        var products = await _catalog.Products
+            .AsNoTracking()
+            .Where(x => productIds.Contains(x.Id))
+            .Select(x => new AdminReviewListProductResponse(
+                x.Id,
+                x.Name,
+                x.ImageUrl))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
 
         return new AdminReviewListResponse(
-            reviews.Select(ToAdminResponse).ToArray(),
+            reviews.Select(x => ToAdminListItemResponse(
+                x,
+                customers.GetValueOrDefault(x.UserId),
+                products.GetValueOrDefault(x.ProductId))).ToArray(),
             total,
             page,
             pageSize);
     }
 
-    public async Task<ReviewResponse> GetAdminReviewByIdAsync(
+    public async Task<AdminReviewDetailResponse> GetAdminReviewByIdAsync(
         Guid reviewId,
         CancellationToken cancellationToken = default)
     {
@@ -164,7 +203,56 @@ public sealed class ReviewService
             .FirstOrDefaultAsync(x => x.Id == reviewId, cancellationToken)
             ?? throw new NotFoundException("Review was not found.");
 
-        return ToAdminResponse(review);
+        var customer = await _identity.Customers
+            .AsNoTracking()
+            .Where(x => x.Id == review.UserId)
+            .Select(x => new AdminReviewCustomerResponse(
+                x.Id,
+                x.LineProfile.DisplayName,
+                x.LineProfile.LineUserId,
+                x.LineProfile.PictureUrl,
+                x.LineProfile.Email))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var product = await _catalog.Products
+            .AsNoTracking()
+            .Where(x => x.Id == review.ProductId)
+            .Select(x => new AdminReviewProductResponse(
+                x.Id,
+                x.Name,
+                x.Slug,
+                x.ImageUrl))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var order = await _ordering.Orders
+            .AsNoTracking()
+            .Where(x => x.Id == review.OrderId)
+            .Select(x => new AdminReviewOrderResponse(
+                x.Id,
+                x.Number,
+                x.Status,
+                x.PaymentStatus,
+                x.OrderDate,
+                x.CustomerName,
+                x.CustomerPhone))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var orderItem = await _ordering.OrderItems
+            .AsNoTracking()
+            .Where(x => x.Id == review.OrderItemId)
+            .Select(x => new AdminReviewOrderItemResponse(
+                x.Id,
+                x.ProductId,
+                x.VariantId,
+                x.Sku,
+                x.Name,
+                x.Quantity,
+                x.PricePerUnit,
+                x.TotalPrice,
+                x.ImageUrl))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return ToAdminDetailResponse(review, customer, product, order, orderItem);
     }
 
     public async Task<ProductReviewSummaryResponse> GetProductSummaryAsync(
@@ -218,13 +306,22 @@ public sealed class ReviewService
         {
             foreach (var upload in uploads)
             {
+                var thumbnail = await TryGenerateAndUploadVideoThumbnailAsync(
+                    upload,
+                    BuildReviewVideoThumbnailPath(orderItemId, upload.FileName),
+                    cancellationToken);
+                if (thumbnail is not null)
+                {
+                    uploadedPaths.Add(thumbnail.Path);
+                }
+
                 var path = BuildReviewMediaPath(orderItemId, upload.FileName);
                 var url = await _storage.UploadAsync(path, upload.FileStream, upload.MimeType, cancellationToken);
                 uploadedPaths.Add(path);
                 media.Add(new CreateReviewMediaRequest(
                     upload.Type,
                     url,
-                    null,
+                    thumbnail?.Url,
                     upload.DurationSec,
                     upload.FileSizeBytes,
                     upload.MimeType,
@@ -317,13 +414,22 @@ public sealed class ReviewService
         {
             foreach (var upload in uploads)
             {
+                var thumbnail = await TryGenerateAndUploadVideoThumbnailAsync(
+                    upload,
+                    BuildReviewVideoThumbnailPath(review.OrderItemId, upload.FileName),
+                    cancellationToken);
+                if (thumbnail is not null)
+                {
+                    uploadedPaths.Add(thumbnail.Path);
+                }
+
                 var path = BuildReviewMediaPath(review.OrderItemId, upload.FileName);
                 var url = await _storage.UploadAsync(path, upload.FileStream, upload.MimeType, cancellationToken);
                 uploadedPaths.Add(path);
                 media.Add(new CreateReviewMediaRequest(
                     upload.Type,
                     url,
-                    null,
+                    thumbnail?.Url,
                     upload.DurationSec,
                     upload.FileSizeBytes,
                     upload.MimeType,
@@ -391,11 +497,7 @@ public sealed class ReviewService
         string status,
         CancellationToken cancellationToken = default)
     {
-        var normalized = status?.Trim().ToLowerInvariant() ?? string.Empty;
-        if (!ReviewStatus.IsValid(normalized))
-        {
-            throw new BadRequestException("Review status must be published or hidden.");
-        }
+        var normalized = NormalizeReviewStatus(status);
 
         var review = await _reviews.Reviews
             .Include(x => x.Media)
@@ -408,17 +510,46 @@ public sealed class ReviewService
         }
 
         var now = _clock.UtcNow;
-        if (normalized == ReviewStatus.Published)
-        {
-            review.Publish(now);
-        }
-        else
-        {
-            review.Hide(now);
-        }
+        ApplyReviewStatus(review, normalized, now);
 
         await _reviews.SaveChangesAsync(cancellationToken);
         return ToAdminResponse(review);
+    }
+
+    public async Task<BulkUpdateReviewStatusResponse> UpdateReviewStatusesAsync(
+        IReadOnlyCollection<Guid> reviewIds,
+        string status,
+        CancellationToken cancellationToken = default)
+    {
+        if (reviewIds is null || reviewIds.Count == 0)
+        {
+            throw new BadRequestException("At least one review id is required.");
+        }
+
+        var normalized = NormalizeReviewStatus(status);
+        var distinctIds = reviewIds.Distinct().ToArray();
+        var reviews = await _reviews.Reviews
+            .Where(x => distinctIds.Contains(x.Id))
+            .ToArrayAsync(cancellationToken);
+
+        if (reviews.Length != distinctIds.Length)
+        {
+            throw new NotFoundException("One or more reviews were not found.");
+        }
+
+        if (reviews.Any(x => x.DeletedAtUtc is not null))
+        {
+            throw new BadRequestException("Deleted reviews cannot be published or hidden.");
+        }
+
+        var now = _clock.UtcNow;
+        foreach (var review in reviews)
+        {
+            ApplyReviewStatus(review, normalized, now);
+        }
+
+        await _reviews.SaveChangesAsync(cancellationToken);
+        return new BulkUpdateReviewStatusResponse(reviews.Length, normalized);
     }
 
     public async Task AdminDeleteReviewAsync(
@@ -538,7 +669,17 @@ public sealed class ReviewService
                 throw new BadRequestException("Video duration must be between 1 and 60 seconds.");
             }
 
-            media.Complete(request.Url ?? media.Url, request.ThumbnailUrl, request.DurationSec, now);
+            var completedUrl = request.Url ?? media.Url;
+            var thumbnailUrl = request.ThumbnailUrl;
+            if (media.Type == ReviewMediaType.Video && string.IsNullOrWhiteSpace(thumbnailUrl))
+            {
+                thumbnailUrl = await TryGenerateAndUploadVideoThumbnailAsync(
+                    completedUrl,
+                    BuildReviewVideoThumbnailPath(media.Id),
+                    cancellationToken);
+            }
+
+            media.Complete(completedUrl, thumbnailUrl, request.DurationSec, now);
         }
 
         await _reviews.SaveChangesAsync(cancellationToken);
@@ -741,6 +882,208 @@ public sealed class ReviewService
         return $"reviews/{orderItemId:D}/{Guid.NewGuid():D}{extension.ToLowerInvariant()}";
     }
 
+    private static string BuildReviewVideoThumbnailPath(Guid orderItemId, string fileName)
+        => $"reviews/{orderItemId:D}/{Guid.NewGuid():D}{VideoThumbnailExtension}";
+
+    private static string BuildReviewVideoThumbnailPath(Guid mediaId)
+        => $"reviews/{mediaId:D}/thumbnail{VideoThumbnailExtension}";
+
+    private async Task<UploadedVideoThumbnail?> TryGenerateAndUploadVideoThumbnailAsync(
+        CreateReviewUploadMediaRequest upload,
+        string thumbnailPath,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(upload.Type, ReviewMediaType.Video, StringComparison.OrdinalIgnoreCase)
+            || !upload.FileStream.CanSeek)
+        {
+            return null;
+        }
+
+        var originalPosition = upload.FileStream.Position;
+        var videoFile = BuildTempFilePath(Path.GetExtension(upload.FileName));
+        var thumbnailFile = BuildTempFilePath(VideoThumbnailExtension);
+        try
+        {
+            upload.FileStream.Position = 0;
+            await using (var output = File.Create(videoFile))
+            {
+                await upload.FileStream.CopyToAsync(output, cancellationToken);
+            }
+
+            upload.FileStream.Position = 0;
+            if (!await TryCreateVideoThumbnailFileAsync(videoFile, thumbnailFile, cancellationToken))
+            {
+                return null;
+            }
+
+            await using var thumbnailStream = File.OpenRead(thumbnailFile);
+            var url = await _storage.UploadAsync(
+                thumbnailPath,
+                thumbnailStream,
+                VideoThumbnailMimeType,
+                cancellationToken);
+
+            return new UploadedVideoThumbnail(url, thumbnailPath);
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            if (upload.FileStream.CanSeek)
+            {
+                upload.FileStream.Position = originalPosition;
+            }
+
+            DeleteTempFile(videoFile);
+            DeleteTempFile(thumbnailFile);
+        }
+    }
+
+    private async Task<string?> TryGenerateAndUploadVideoThumbnailAsync(
+        string videoUrlOrPath,
+        string thumbnailPath,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(videoUrlOrPath))
+        {
+            return null;
+        }
+
+        var videoFile = BuildTempFilePath(Path.GetExtension(videoUrlOrPath));
+        var thumbnailFile = BuildTempFilePath(VideoThumbnailExtension);
+        try
+        {
+            var sourceUrl = videoUrlOrPath.Trim();
+            if (!IsAbsoluteHttpUrl(sourceUrl))
+            {
+                sourceUrl = await _storage.GetPublicUrlAsync(sourceUrl, cancellationToken);
+            }
+
+            using var response = await _httpClientFactory
+                .CreateClient()
+                .GetAsync(sourceUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken))
+            await using (var output = File.Create(videoFile))
+            {
+                await input.CopyToAsync(output, cancellationToken);
+            }
+
+            if (!await TryCreateVideoThumbnailFileAsync(videoFile, thumbnailFile, cancellationToken))
+            {
+                return null;
+            }
+
+            await using var thumbnailStream = File.OpenRead(thumbnailFile);
+            return await _storage.UploadAsync(
+                thumbnailPath,
+                thumbnailStream,
+                VideoThumbnailMimeType,
+                cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            DeleteTempFile(videoFile);
+            DeleteTempFile(thumbnailFile);
+        }
+    }
+
+    private static async Task<bool> TryCreateVideoThumbnailFileAsync(
+        string videoFile,
+        string thumbnailFile,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "ffmpeg",
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("-y");
+            startInfo.ArgumentList.Add("-hide_banner");
+            startInfo.ArgumentList.Add("-loglevel");
+            startInfo.ArgumentList.Add("error");
+            startInfo.ArgumentList.Add("-ss");
+            startInfo.ArgumentList.Add("00:00:01");
+            startInfo.ArgumentList.Add("-i");
+            startInfo.ArgumentList.Add(videoFile);
+            startInfo.ArgumentList.Add("-frames:v");
+            startInfo.ArgumentList.Add("1");
+            startInfo.ArgumentList.Add("-q:v");
+            startInfo.ArgumentList.Add("3");
+            startInfo.ArgumentList.Add(thumbnailFile);
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return false;
+            }
+
+            await process.WaitForExitAsync(cancellationToken);
+            return process.ExitCode == 0
+                   && File.Exists(thumbnailFile)
+                   && new FileInfo(thumbnailFile).Length > 0;
+        }
+        catch (Win32Exception)
+        {
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string BuildTempFilePath(string? extension)
+    {
+        extension = string.IsNullOrWhiteSpace(extension) ? ".tmp" : extension;
+        extension = extension.Split('?', '#')[0];
+        if (!extension.StartsWith('.'))
+        {
+            extension = $".{extension}";
+        }
+
+        if (extension.Length > 12 || extension.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            extension = ".tmp";
+        }
+
+        return Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():D}{extension}");
+    }
+
+    private static void DeleteTempFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Temp cleanup is best effort; thumbnail generation must not block review submission.
+        }
+    }
+
     private static PublicReviewResponse ToPublicResponse(Review review, CustomerPublicProfile? profile)
     {
         var media = review.Media
@@ -782,6 +1125,69 @@ public sealed class ReviewService
                 .OrderBy(x => x.SortOrder)
                 .Select(ToMediaResponse)
                 .ToArray());
+    }
+
+    private static AdminReviewListItemResponse ToAdminListItemResponse(
+        Review review,
+        AdminReviewListCustomerResponse? customer,
+        AdminReviewListProductResponse? product)
+    {
+        return new AdminReviewListItemResponse(
+            review.Id,
+            review.ProductId,
+            review.VariantId,
+            review.OrderId,
+            review.OrderItemId,
+            review.UserId,
+            review.Rating,
+            review.Comment,
+            review.IsAnonymous,
+            review.Status,
+            customer,
+            product,
+            review.Media
+                .OrderBy(x => x.SortOrder)
+                .Select(ToMediaResponse)
+                .ToArray(),
+            review.EditedAtUtc,
+            review.CreatedAtUtc,
+            review.UpdatedAtUtc);
+    }
+
+    private static AdminReviewDetailResponse ToAdminDetailResponse(
+        Review review,
+        AdminReviewCustomerResponse? customer,
+        AdminReviewProductResponse? product,
+        AdminReviewOrderResponse? order,
+        AdminReviewOrderItemResponse? orderItem)
+    {
+        var media = review.Media
+            .OrderBy(x => x.SortOrder)
+            .Select(ToMediaResponse)
+            .ToArray();
+
+        return new AdminReviewDetailResponse(
+            review.Id,
+            review.ProductId,
+            review.VariantId,
+            review.OrderId,
+            review.OrderItemId,
+            review.UserId,
+            review.Rating,
+            review.Comment,
+            review.IsAnonymous,
+            review.Status,
+            customer,
+            product,
+            order,
+            orderItem,
+            orderItem?.Sku,
+            media,
+            [],
+            review.EditedAtUtc,
+            review.CreatedAtUtc,
+            review.UpdatedAtUtc,
+            review.DeletedAtUtc);
     }
 
     private static ReviewResponse ToResponse(Review review, IReadOnlyCollection<ReviewMediaResponse> media)
@@ -834,6 +1240,29 @@ public sealed class ReviewService
         => Uri.TryCreate(url, UriKind.Absolute, out var uri)
            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
+    private static string NormalizeReviewStatus(string status)
+    {
+        var normalized = status?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (!ReviewStatus.IsValid(normalized))
+        {
+            throw new BadRequestException("Review status must be published or hidden.");
+        }
+
+        return normalized;
+    }
+
+    private static void ApplyReviewStatus(Review review, string status, DateTime now)
+    {
+        if (status == ReviewStatus.Published)
+        {
+            review.Publish(now);
+            return;
+        }
+
+        review.Hide(now);
+    }
+
     private sealed record ReviewableOrderItem(Guid OrderId, Guid ProductId, Guid? VariantId);
     private sealed record CustomerPublicProfile(Guid CustomerId, string DisplayName, string? PictureUrl);
+    private sealed record UploadedVideoThumbnail(string Url, string Path);
 }

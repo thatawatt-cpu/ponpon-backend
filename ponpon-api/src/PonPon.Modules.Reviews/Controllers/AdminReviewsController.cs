@@ -33,7 +33,7 @@ public sealed class AdminReviewsController : ControllerBase
     }
 
     [HttpGet("{reviewId:guid}")]
-    public async Task<ActionResult<ReviewResponse>> GetReviewById(
+    public async Task<ActionResult<AdminReviewDetailResponse>> GetReviewById(
         Guid reviewId,
         [FromServices] ReviewService service,
         CancellationToken cancellationToken)
@@ -49,6 +49,15 @@ public sealed class AdminReviewsController : ControllerBase
         CancellationToken cancellationToken)
     {
         return Ok(await service.UpdateReviewStatusAsync(reviewId, request.Status, cancellationToken));
+    }
+
+    [HttpPatch("bulk/status")]
+    public async Task<ActionResult<BulkUpdateReviewStatusResponse>> BulkUpdateStatus(
+        [FromBody] BulkUpdateReviewStatusRequest request,
+        [FromServices] ReviewService service,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await service.UpdateReviewStatusesAsync(request.ReviewIds, request.Status, cancellationToken));
     }
 
     [HttpDelete("{reviewId:guid}")]
