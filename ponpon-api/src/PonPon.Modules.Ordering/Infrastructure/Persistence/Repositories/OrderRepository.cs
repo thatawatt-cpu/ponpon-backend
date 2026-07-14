@@ -347,6 +347,7 @@ public sealed class OrderRepository : IOrderRepository
             .Include(x => x.Payments)
             .Where(x => x.ZortOrderId < 0
                      && x.Status != "Voided"
+                     && (x.PaymentStatus == "Paid" || x.PaymentStatus == "1")
                      && x.SalesChannel == "LineLiff")
             .OrderBy(x => x.CreatedAtUtc)
             .Take(limit)

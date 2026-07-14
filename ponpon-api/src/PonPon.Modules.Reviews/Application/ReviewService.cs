@@ -180,6 +180,7 @@ public sealed class ReviewService
             .Select(x => new AdminReviewListProductResponse(
                 x.Id,
                 x.Name,
+                x.Slug,
                 x.ImageUrl))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
 

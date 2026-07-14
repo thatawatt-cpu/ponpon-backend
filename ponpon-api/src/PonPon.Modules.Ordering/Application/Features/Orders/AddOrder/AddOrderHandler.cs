@@ -1,8 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
 using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Catalog.Domain.Products;
 using PonPon.Modules.Ordering.Application.Features.Orders.CheckoutPricing;
-using PonPon.Modules.Ordering.Application.Features.Orders.SyncPendingOrderToZort;
 using PonPon.Modules.Ordering.Application.Features.Orders.SyncOrdersFromZort;
 using PonPon.Modules.Ordering.Application.Abstractions;
 using PonPon.Modules.Ordering.Domain.Orders;
@@ -21,7 +19,6 @@ public sealed class AddOrderHandler
     private readonly IOrderRepository _orders;
     private readonly IOrderingUnitOfWork _unitOfWork;
     private readonly IProductRepository _products;
-    private readonly IBackgroundTaskQueue _backgroundQueue;
     private readonly ICurrentUser _currentUser;
     private readonly IShopRealtimeNotificationService _shopRealtimeNotifications;
     private readonly IDateTimeProvider _clock;
@@ -35,7 +32,6 @@ public sealed class AddOrderHandler
         IOrderRepository orders,
         IOrderingUnitOfWork unitOfWork,
         IProductRepository products,
-        IBackgroundTaskQueue backgroundQueue,
         ICurrentUser currentUser,
         IShopRealtimeNotificationService shopRealtimeNotifications,
         CheckoutPricingQuoteService quoteService,
@@ -48,7 +44,6 @@ public sealed class AddOrderHandler
         _orders = orders;
         _unitOfWork = unitOfWork;
         _products = products;
-        _backgroundQueue = backgroundQueue;
         _currentUser = currentUser;
         _shopRealtimeNotifications = shopRealtimeNotifications;
         _quoteService = quoteService;
@@ -230,12 +225,6 @@ public sealed class AddOrderHandler
             throw;
         }
         await clientRequestLock.CompleteAsync(cancellationToken);
-
-        _backgroundQueue.Enqueue(async (sp, ct) =>
-        {
-            var handler = sp.GetRequiredService<SyncPendingOrderToZortHandler>();
-            await handler.HandleAsync(order.Id, ct);
-        });
 
         await _shopRealtimeNotifications.NotifyAsync(
             CreateShopNotification(

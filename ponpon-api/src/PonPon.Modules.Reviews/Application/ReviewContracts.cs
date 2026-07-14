@@ -129,6 +129,7 @@ public sealed record AdminReviewListCustomerResponse(
 public sealed record AdminReviewListProductResponse(
     Guid Id,
     string Name,
+    string? Slug,
     string? ImageUrl);
 
 public sealed record UpdateReviewStatusRequest(string Status);

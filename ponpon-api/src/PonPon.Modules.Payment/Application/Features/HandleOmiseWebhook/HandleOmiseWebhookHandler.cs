@@ -1,38 +1,39 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PonPon.Modules.Ordering.Application;
 using PonPon.Modules.Ordering.Application.Abstractions;
-using PonPon.Shared.Application.Abstractions;
+using PonPon.Modules.Ordering.Application.Features.Orders.SyncPendingOrderToZort;
 using PonPon.Modules.Payment.Application.Abstractions;
+using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
 
 namespace PonPon.Modules.Payment.Application.Features.HandleOmiseWebhook;
 
 public sealed class HandleOmiseWebhookHandler
 {
-
-    private readonly IZortOrderClient _zort;
     private readonly IOrderRepository _orders;
     private readonly ILineOrderNotificationService _lineNotifications;
     private readonly IShopRealtimeNotificationService _shopRealtimeNotifications;
     private readonly ILogger<HandleOmiseWebhookHandler> _logger;
     private readonly IOmiseClient _omise;
     private readonly IOrderingUnitOfWork _unitOfWork;
+    private readonly IBackgroundTaskQueue _backgroundQueue;
 
     public HandleOmiseWebhookHandler(
-        IZortOrderClient zort,
         IOrderRepository orders,
         ILineOrderNotificationService lineNotifications,
         IShopRealtimeNotificationService shopRealtimeNotifications,
         IOmiseClient omise,
         IOrderingUnitOfWork unitOfWork,
+        IBackgroundTaskQueue backgroundQueue,
         ILogger<HandleOmiseWebhookHandler> logger)
     {
-        _zort = zort;
         _orders = orders;
         _lineNotifications = lineNotifications;
         _shopRealtimeNotifications = shopRealtimeNotifications;
         _omise = omise;
         _unitOfWork = unitOfWork;
+        _backgroundQueue = backgroundQueue;
         _logger = logger;
     }
 
@@ -103,14 +104,6 @@ public sealed class HandleOmiseWebhookHandler
         }
 
         var amountBaht = charge.Amount / 100m;
-        if ((string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase)
-             || string.Equals(order.PaymentStatus, "1", StringComparison.OrdinalIgnoreCase))
-            && order.PaymentAmount == amountBaht)
-        {
-            await paymentLock.CompleteAsync(cancellationToken);
-            return;
-        }
-
         var paymentMethod = charge.SourceType switch
         {
             "promptpay" => "QR Code",
@@ -118,31 +111,21 @@ public sealed class HandleOmiseWebhookHandler
             _ => "Credit Card"
         };
 
-        // Step 2: record payment in Zort
-        try
+        if ((string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase)
+             || string.Equals(order.PaymentStatus, "1", StringComparison.OrdinalIgnoreCase))
+            && order.PaymentAmount == amountBaht)
         {
-            await _zort.UpdateOrderPaymentAsync(orderNumber, amountBaht, paymentMethod, command.PaidAt, cancellationToken);
-            _logger.LogInformation(
-                "Zort payment recorded: order={OrderNumber} amount={Amount} method={Method}",
-                orderNumber, amountBaht, paymentMethod);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to record payment in Zort for order {OrderNumber}", orderNumber);
+            if (order.ZortOrderId <= 0)
+            {
+                await paymentLock.CompleteAsync(cancellationToken);
+                EnqueuePaidOrderToZortSync(order.Id, order.Number);
+                return;
+            }
+
+            await paymentLock.CompleteAsync(cancellationToken);
+            return;
         }
 
-        // Step 3: move status to Waiting
-        try
-        {
-            await _zort.UpdateOrderStatusAsync(orderNumber, (int)ZortOrderStatus.Waiting, cancellationToken);
-            _logger.LogInformation("Zort order status â†’ Waiting: order={OrderNumber}", orderNumber);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to update Zort order status for order {OrderNumber}", orderNumber);
-        }
-
-        // Update local DB
         var paymentUpdated = await _orders.UpdatePaymentStatusAsync(
             order.Id,
             charge.ChargeId,
@@ -152,32 +135,44 @@ public sealed class HandleOmiseWebhookHandler
             cancellationToken);
         if (!paymentUpdated)
             throw new BadRequestException("Order payment state changed before the verified charge could be applied.");
+
+        await _orders.ReloadAsync(order, cancellationToken);
+
         await paymentLock.CompleteAsync(cancellationToken);
         _logger.LogInformation("Local order {OrderNumber} marked as Waiting/Paid", orderNumber);
+        EnqueuePaidOrderToZortSync(order.Id, order.Number);
 
+        await _lineNotifications.NotifyPaymentSucceededAsync(
+            new LineOrderNotification(
+                order.Id,
+                order.Number,
+                order.IntegrationCustomerId,
+                order.CustomerName,
+                amountBaht,
+                PaymentMethod: paymentMethod,
+                ShippingAddress: order.ShippingAddress ?? order.CustomerAddress),
+            cancellationToken);
+        await _shopRealtimeNotifications.NotifyAsync(
+            new ShopRealtimeNotification(
+                order.CustomerId,
+                order.IntegrationCustomerId,
+                "payment_succeeded",
+                order.Id,
+                order.Number,
+                "ชำระเงินสำเร็จ",
+                "ร้านค้าจะเริ่มดำเนินการคำสั่งซื้อของคุณ",
+                amountBaht,
+                order.PaymentStatus),
+            cancellationToken);
+    }
+
+    private void EnqueuePaidOrderToZortSync(Guid orderId, string orderNumber)
+    {
+        _backgroundQueue.Enqueue(async (sp, ct) =>
         {
-            await _lineNotifications.NotifyPaymentSucceededAsync(
-                new LineOrderNotification(
-                    order.Id,
-                    order.Number,
-                    order.IntegrationCustomerId,
-                    order.CustomerName,
-                    amountBaht,
-                    PaymentMethod: paymentMethod,
-                    ShippingAddress: order.ShippingAddress ?? order.CustomerAddress),
-                cancellationToken);
-            await _shopRealtimeNotifications.NotifyAsync(
-                new ShopRealtimeNotification(
-                    order.CustomerId,
-                    order.IntegrationCustomerId,
-                    "payment_succeeded",
-                    order.Id,
-                    order.Number,
-                    "ชำระเงินสำเร็จ",
-                    "ร้านค้าจะเริ่มดำเนินการคำสั่งซื้อของคุณ",
-                    amountBaht,
-                    order.PaymentStatus),
-                cancellationToken);
-        }
+            var handler = sp.GetRequiredService<SyncPendingOrderToZortHandler>();
+            await handler.HandleAsync(orderId, ct);
+        });
+        _logger.LogInformation("Queued paid order {OrderNumber} for ZORT sync", orderNumber);
     }
 }
