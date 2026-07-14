@@ -6,6 +6,7 @@ public interface ILineOrderNotificationService
     Task NotifyPaymentCreatedAsync(LineOrderNotification notification, CancellationToken cancellationToken = default);
     Task NotifyPaymentSucceededAsync(LineOrderNotification notification, CancellationToken cancellationToken = default);
     Task NotifyPaymentExpiredAsync(LineOrderNotification notification, CancellationToken cancellationToken = default);
+    Task NotifyOrderCancelledAsync(LineOrderNotification notification, CancellationToken cancellationToken = default);
     Task NotifyAutoRefundCompletedAsync(LineOrderNotification notification, CancellationToken cancellationToken = default);
     Task NotifyManualRefundRequestedAsync(LineOrderNotification notification, CancellationToken cancellationToken = default);
     Task NotifyManualRefundCompletedAsync(LineOrderNotification notification, CancellationToken cancellationToken = default);

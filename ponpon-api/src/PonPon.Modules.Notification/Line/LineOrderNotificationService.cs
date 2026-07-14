@@ -40,6 +40,9 @@ public sealed class LineOrderNotificationService : ILineOrderNotificationService
     public Task NotifyPaymentExpiredAsync(LineOrderNotification notification, CancellationToken cancellationToken = default)
         => SendAsync(notification, "หมดเวลาชำระเงิน", "คำสั่งซื้อถูกยกเลิกเพราะไม่ได้ชำระเงินในเวลาที่กำหนด", "#6B7280", "ดูคำสั่งซื้อ", cancellationToken);
 
+    public Task NotifyOrderCancelledAsync(LineOrderNotification notification, CancellationToken cancellationToken = default)
+        => SendAsync(notification, "ยกเลิกคำสั่งซื้อเรียบร้อยแล้ว", "คำสั่งซื้อของคุณถูกยกเลิกเรียบร้อยแล้ว", "#6B7280", "ดูคำสั่งซื้อ", cancellationToken);
+
     public Task NotifyAutoRefundCompletedAsync(LineOrderNotification notification, CancellationToken cancellationToken = default)
         => SendAsync(notification, "ยกเลิกและคืนเงินแล้ว", "ระบบดำเนินการคืนเงินและยกเลิกคำสั่งซื้อเรียบร้อยแล้ว", "#16A34A", "ดูคำสั่งซื้อ", cancellationToken);
 

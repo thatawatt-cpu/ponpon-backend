@@ -33,6 +33,13 @@ public sealed class GetOrderByIdHandler
                 skusWithoutImages,
                 cancellationToken)
             : new Dictionary<string, (string? ImageUrl, string? OptionsJson)>();
+        var amount = CalculateGrossItemAmount(order);
+        var discountAmount = CalculateTotalDiscountAmount(order);
+        var paymentAmount = CalculatePaymentAmount(
+            amount,
+            discountAmount,
+            order.ShippingAmount,
+            order.VatAmount);
 
         return new OrderDetailResponse(
             order.Id,
@@ -47,11 +54,11 @@ public sealed class GetOrderByIdHandler
             order.CustomerAddress,
             order.Status,
             order.PaymentStatus,
-            order.Amount,
+            amount,
             order.VatAmount,
             order.ShippingAmount,
-            order.PaymentAmount,
-            order.DiscountAmount,
+            paymentAmount,
+            discountAmount,
             order.ShippingChannel,
             order.ShippingName,
             order.ShippingAddress,
@@ -102,4 +109,22 @@ public sealed class GetOrderByIdHandler
                 x.Amount,
                 x.PaymentDateTime)).ToArray());
     }
+
+    private static decimal CalculateGrossItemAmount(Domain.Orders.Order order)
+        => order.Items.Sum(x => x.TotalPrice + x.DiscountAmount);
+
+    private static decimal CalculateTotalDiscountAmount(Domain.Orders.Order order)
+        => order.DiscountAmount + order.Items.Sum(x => x.DiscountAmount);
+
+    private static decimal CalculatePaymentAmount(
+        decimal amount,
+        decimal discountAmount,
+        decimal shippingAmount,
+        decimal vatAmount)
+        => Math.Max(
+            0,
+            decimal.Round(
+                amount - discountAmount + shippingAmount + vatAmount,
+                2,
+                MidpointRounding.AwayFromZero));
 }

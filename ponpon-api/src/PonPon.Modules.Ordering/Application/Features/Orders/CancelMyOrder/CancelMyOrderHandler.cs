@@ -72,6 +72,32 @@ public sealed class CancelMyOrderHandler
             throw new BadRequestException("Order cannot be refunded because shipping booking already exists.");
         }
 
+        var isPaid = IsPaid(order.PaymentStatus);
+        if (!isPaid)
+        {
+            if (order.ZortOrderId > 0)
+            {
+                await _zortClient.VoidOrderAsync(order.ZortOrderId, cancellationToken);
+            }
+
+            order.MarkVoided(_clock.UtcNow, command.Reason, "Customer");
+            await _stockReservations.ReleaseAsync(order, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            await _lineNotifications.NotifyOrderCancelledAsync(
+                CreateLineNotification(order, command.Reason),
+                cancellationToken);
+            await _shopRealtimeNotifications.NotifyAsync(
+                CreateShopNotification(
+                    order,
+                    "order_cancelled",
+                    "ยกเลิกคำสั่งซื้อเรียบร้อยแล้ว",
+                    "คำสั่งซื้อของคุณถูกยกเลิกเรียบร้อยแล้ว",
+                    order.Status),
+                cancellationToken);
+            return;
+        }
+
         try
         {
             await _paymentRefund.RefundOrderAsync(order.Id, cancellationToken);
@@ -147,6 +173,10 @@ public sealed class CancelMyOrderHandler
         => exception.Message.Contains(
             "Payment could not be refunded automatically by Omise",
             StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPaid(string paymentStatus)
+        => string.Equals(paymentStatus, "Paid", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(paymentStatus, ((int)ZortPaymentStatus.Paid).ToString(), StringComparison.OrdinalIgnoreCase);
 
     private static LineOrderNotification CreateLineNotification(
         Order order,

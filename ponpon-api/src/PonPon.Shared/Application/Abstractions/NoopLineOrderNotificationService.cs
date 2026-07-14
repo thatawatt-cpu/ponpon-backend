@@ -6,6 +6,7 @@ public sealed class NoopLineOrderNotificationService : ILineOrderNotificationSer
     public Task NotifyPaymentCreatedAsync(LineOrderNotification notification, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task NotifyPaymentSucceededAsync(LineOrderNotification notification, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task NotifyPaymentExpiredAsync(LineOrderNotification notification, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task NotifyOrderCancelledAsync(LineOrderNotification notification, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task NotifyAutoRefundCompletedAsync(LineOrderNotification notification, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task NotifyManualRefundRequestedAsync(LineOrderNotification notification, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task NotifyManualRefundCompletedAsync(LineOrderNotification notification, CancellationToken cancellationToken = default) => Task.CompletedTask;
