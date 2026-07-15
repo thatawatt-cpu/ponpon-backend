@@ -41,6 +41,7 @@ public sealed class CouponService : ICouponService
             .Include(x => x.Conditions)
             .FirstOrDefaultAsync(
                 x => x.Code == code.Trim().ToUpper()
+                     && !x.IsDeleted
                      && (!x.CampaignId.HasValue
                          || _db.CouponCampaigns.Any(c =>
                              c.Id == x.CampaignId.Value
@@ -55,6 +56,7 @@ public sealed class CouponService : ICouponService
             .Include(x => x.Scopes)
             .Include(x => x.CustomerScopes)
             .Include(x => x.Conditions)
+            .Where(x => !x.IsDeleted)
             .OrderBy(x => x.Code)
             .ToArrayAsync(cancellationToken);
 
@@ -65,7 +67,7 @@ public sealed class CouponService : ICouponService
             .Include(x => x.Scopes)
             .Include(x => x.CustomerScopes)
             .Include(x => x.Conditions)
-            .Where(x => x.CampaignId == campaignId)
+            .Where(x => x.CampaignId == campaignId && !x.IsDeleted)
             .OrderBy(x => x.Code)
             .ToArrayAsync(cancellationToken);
 
@@ -74,7 +76,7 @@ public sealed class CouponService : ICouponService
             .Include(x => x.Scopes)
             .Include(x => x.CustomerScopes)
             .Include(x => x.Conditions)
-            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
 
     public async Task<IReadOnlyCollection<CouponUsage>> GetUsagesAsync(
         Guid couponId, CancellationToken cancellationToken = default)
@@ -180,11 +182,11 @@ public sealed class CouponService : ICouponService
             .Include(x => x.Scopes)
             .Include(x => x.CustomerScopes)
             .Include(x => x.Conditions)
-            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken)
             ?? throw new NotFoundException("Coupon was not found.");
         var coupon = await _db.Coupons
             .IgnoreAutoIncludes()
-            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken)
             ?? throw new NotFoundException("Coupon was not found.");
         var code = input.Code.Trim().ToUpperInvariant();
         if (await _db.Coupons.AnyAsync(x => x.Id != id && x.Code == code, cancellationToken))
@@ -210,7 +212,7 @@ public sealed class CouponService : ICouponService
         {
             if (!await _db.Coupons
                 .AsNoTracking()
-                .AnyAsync(x => x.Id == id, cancellationToken))
+                .AnyAsync(x => x.Id == id && !x.IsDeleted, cancellationToken))
                 throw new NotFoundException("Coupon was not found.");
 
             throw;
@@ -219,31 +221,17 @@ public sealed class CouponService : ICouponService
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var coupon = await _db.Coupons.FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
+        var coupon = await _db.Coupons.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken)
             ?? throw new NotFoundException("Coupon was not found.");
         var beforeJson = ToAuditJson(coupon);
-        if (await _db.CouponUsages.AnyAsync(x => x.CouponId == id, cancellationToken))
-        {
-            coupon.Deactivate(DateTime.UtcNow);
-            _db.CouponAuditLogs.Add(CreateAuditLog(
-                coupon.Id,
-                null,
-                "deactivated",
-                beforeJson,
-                ToAuditJson(coupon),
-                DateTime.UtcNow));
-        }
-        else
-        {
-            _db.Coupons.Remove(coupon);
-            _db.CouponAuditLogs.Add(CreateAuditLog(
-                coupon.Id,
-                null,
-                "deleted",
-                beforeJson,
-                null,
-                DateTime.UtcNow));
-        }
+        coupon.Delete(DateTime.UtcNow);
+        _db.CouponAuditLogs.Add(CreateAuditLog(
+            coupon.Id,
+            null,
+            "deleted",
+            beforeJson,
+            ToAuditJson(coupon),
+            DateTime.UtcNow));
         await _db.SaveChangesAsync(cancellationToken);
     }
 
@@ -281,6 +269,7 @@ public sealed class CouponService : ICouponService
         var now = DateTime.UtcNow;
         var coupon = await _db.Coupons.FirstOrDefaultAsync(
             x => x.Id == couponId
+                 && !x.IsDeleted
                  && (!x.CampaignId.HasValue
                      || _db.CouponCampaigns.Any(c =>
                          c.Id == x.CampaignId.Value
@@ -371,7 +360,7 @@ public sealed class CouponService : ICouponService
         var activeUsages = usages.Where(x => !x.IsReleased).ToArray();
         var couponIds = activeUsages.Select(x => x.CouponId).Distinct().ToArray();
         var coupons = await _db.Coupons
-            .Where(x => couponIds.Contains(x.Id))
+            .Where(x => couponIds.Contains(x.Id) && !x.IsDeleted)
             .ToDictionaryAsync(x => x.Id, cancellationToken);
         foreach (var usage in activeUsages)
         {
@@ -603,6 +592,7 @@ public sealed class CouponService : ICouponService
             coupon.MaximumUsesPerCustomer,
             coupon.UsedCount,
             coupon.IsActive,
+            coupon.IsDeleted,
             Scopes = coupon.Scopes.Select(x => new
             {
                 x.Type,

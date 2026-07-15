@@ -22,6 +22,7 @@ public sealed class Coupon
     public int? MaximumUsesPerCustomer { get; private set; }
     public int UsedCount { get; private set; }
     public bool IsActive { get; private set; }
+    public bool IsDeleted { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? UpdatedAtUtc { get; private set; }
     public List<CouponScope> Scopes { get; private set; } = [];
@@ -66,6 +67,13 @@ public sealed class Coupon
     public void DecrementUsage() => UsedCount = Math.Max(0, UsedCount - 1);
     public void Deactivate(DateTime now)
     {
+        IsActive = false;
+        UpdatedAtUtc = now;
+    }
+
+    public void Delete(DateTime now)
+    {
+        IsDeleted = true;
         IsActive = false;
         UpdatedAtUtc = now;
     }

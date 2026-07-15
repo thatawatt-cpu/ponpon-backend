@@ -42,8 +42,10 @@ public sealed class PromotionDbContext : DbContext
             b.Property(x => x.Value).HasPrecision(18, 2);
             b.Property(x => x.MinimumSubtotal).HasPrecision(18, 2);
             b.Property(x => x.MaximumDiscount).HasPrecision(18, 2);
+            b.Property(x => x.IsDeleted).HasDefaultValue(false);
             b.HasIndex(x => x.Code).IsUnique();
             b.HasIndex(x => x.CampaignId);
+            b.HasIndex(x => x.IsDeleted);
             b.HasOne<CouponCampaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.SetNull);
             b.HasMany(x => x.Scopes).WithOne().HasForeignKey(x => x.CouponId).OnDelete(DeleteBehavior.Cascade);
             b.HasMany(x => x.CustomerScopes).WithOne().HasForeignKey(x => x.CouponId).OnDelete(DeleteBehavior.Cascade);

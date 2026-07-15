@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PonPon.Modules.Promotion.Infrastructure;
@@ -11,9 +12,11 @@ using PonPon.Modules.Promotion.Infrastructure;
 namespace PonPon.Modules.Promotion.Infrastructure.Migrations
 {
     [DbContext(typeof(PromotionDbContext))]
-    partial class PromotionDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260715073525_AddCouponSoftDelete")]
+    partial class AddCouponSoftDelete
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

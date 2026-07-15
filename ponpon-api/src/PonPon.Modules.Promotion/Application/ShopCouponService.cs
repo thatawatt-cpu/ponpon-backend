@@ -159,6 +159,7 @@ public sealed class ShopCouponService : IShopCouponService
             .Include(x => x.CustomerScopes)
             .Include(x => x.Conditions)
             .Where(x => x.IsActive
+                        && !x.IsDeleted
                         && (!x.CampaignId.HasValue
                             || _db.CouponCampaigns.Any(c =>
                                 c.Id == x.CampaignId.Value

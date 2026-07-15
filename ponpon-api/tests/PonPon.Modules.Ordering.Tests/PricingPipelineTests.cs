@@ -932,12 +932,18 @@ public sealed class PricingPipelineTests
         public Task<int> CountCustomerCompletedOrdersAsync(Guid customerId, CancellationToken cancellationToken = default)
             => Task.FromResult(_completedOrderCount);
 
-        public Task<IReadOnlyCollection<AdminOrderListItem>> GetAsync(
+        public Task<AdminOrderListProjection> GetAsync(
             string? keyword,
             string? status,
             string? paymentStatus,
             string? returnRequestStatus,
             string? refundRequestStatus,
+            DateTime? dateFrom,
+            DateTime? dateTo,
+            string? shippingChannel,
+            string? salesChannel,
+            string? sortBy,
+            string? sortDirection,
             int page,
             int pageSize,
             CancellationToken cancellationToken = default)

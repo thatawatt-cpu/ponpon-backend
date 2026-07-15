@@ -54,7 +54,7 @@ public sealed class CouponCampaignService(PromotionDbContext db) : ICouponCampai
     {
         var campaign = await db.CouponCampaigns.FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
             ?? throw new NotFoundException("Coupon campaign was not found.");
-        if (await db.Coupons.AnyAsync(x => x.CampaignId == id, cancellationToken)
+        if (await db.Coupons.AnyAsync(x => x.CampaignId == id && !x.IsDeleted, cancellationToken)
             || await db.Promotions.AnyAsync(x => x.CampaignId == id, cancellationToken))
             campaign.Deactivate(DateTime.UtcNow);
         else
@@ -71,7 +71,7 @@ public sealed class CouponCampaignService(PromotionDbContext db) : ICouponCampai
 
         var ids = campaigns.Select(x => x.Id).ToArray();
         var coupons = await db.Coupons.AsNoTracking()
-            .Where(x => x.CampaignId.HasValue && ids.Contains(x.CampaignId.Value))
+            .Where(x => x.CampaignId.HasValue && ids.Contains(x.CampaignId.Value) && !x.IsDeleted)
             .Select(x => new { x.Id, CampaignId = x.CampaignId!.Value })
             .ToArrayAsync(cancellationToken);
         var couponIds = coupons.Select(x => x.Id).ToArray();
