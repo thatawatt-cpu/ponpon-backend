@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using PonPon.Modules.Catalog.Domain.Products;
 using PonPon.Modules.Catalog.Domain.SyncRuns;
 using PonPon.Modules.Catalog.Infrastructure.Persistence;
+using PonPon.Modules.Ordering.Application;
 using PonPon.Modules.Ordering.Domain.Orders;
 using PonPon.Modules.Ordering.Domain.Returns;
 using PonPon.Modules.Ordering.Domain.SyncRuns;
@@ -18,6 +19,23 @@ namespace PonPon.Api.Controllers;
 public sealed class AdminDashboardController : ControllerBase
 {
     private const string DefaultTimeZone = "Asia/Bangkok";
+    private static readonly string[] ShippingStatuses =
+    [
+        ZortOrderStatus.Shipping.ToString(),
+        ((int)ZortOrderStatus.Shipping).ToString()
+    ];
+    private static readonly string[] DeliveredStatuses =
+    [
+        ZortOrderStatus.Success.ToString(),
+        ((int)ZortOrderStatus.Success).ToString()
+    ];
+    private static readonly string[] ReturnedStatuses =
+    [
+        ZortOrderStatus.Returned.ToString(),
+        ((int)ZortOrderStatus.Returned).ToString(),
+        ZortOrderStatus.FailedShipment.ToString(),
+        ((int)ZortOrderStatus.FailedShipment).ToString()
+    ];
 
     private readonly OrderingDbContext _orderingDbContext;
     private readonly CatalogDbContext _catalogDbContext;
@@ -47,7 +65,7 @@ public sealed class AdminDashboardController : ControllerBase
         var localDate = date ?? DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone));
         if (!TryGetDashboardPeriod(period, out var dashboardPeriod))
         {
-            return BadRequest(new { message = $"Unknown period '{period}'. Use day, month, or year." });
+            return BadRequest(new { message = $"Unknown period '{period}'. Use day, week, month, or year." });
         }
 
         var (startDate, endDateExclusive) = GetLocalDateRange(localDate, dashboardPeriod);
@@ -127,6 +145,39 @@ public sealed class AdminDashboardController : ControllerBase
                 x.Amount,
                 x.Status,
                 x.OrderDate))
+            .ToArrayAsync(cancellationToken);
+
+        var shippingOrders = _orderingDbContext.Orders
+            .AsNoTracking()
+            .Where(x =>
+                (x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc) >= startUtc
+                && (x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc) < endUtc);
+
+        var shippingInTransit = await shippingOrders.CountAsync(
+            x => ShippingStatuses.Contains(x.Status),
+            cancellationToken);
+        var shippingDelivered = await shippingOrders.CountAsync(
+            x => DeliveredStatuses.Contains(x.Status),
+            cancellationToken);
+        var shippingReturned = await shippingOrders.CountAsync(
+            x => ReturnedStatuses.Contains(x.Status),
+            cancellationToken);
+        var latestShippingOrders = await shippingOrders
+            .Where(x =>
+                ShippingStatuses.Contains(x.Status)
+                || DeliveredStatuses.Contains(x.Status)
+                || ReturnedStatuses.Contains(x.Status))
+            .OrderByDescending(x => x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc)
+            .Take(5)
+            .Select(x => new DashboardShippingOrderResponse(
+                x.Id,
+                x.Number,
+                x.CustomerName,
+                x.ShippingChannel,
+                x.TrackingNo,
+                x.Status,
+                x.OrderDate,
+                x.ShippingDate))
             .ToArrayAsync(cancellationToken);
 
         var activeProductVariants =
@@ -275,6 +326,11 @@ public sealed class AdminDashboardController : ControllerBase
                 GetCount(paymentCounts, "PartialPayment"),
                 GetCount(paymentCounts, "ExcessPayment"),
                 GetCount(paymentCounts, "Voided")),
+            new DashboardShippingResponse(
+                shippingInTransit,
+                shippingDelivered,
+                shippingReturned,
+                latestShippingOrders),
             new DashboardSyncResponse(
                 syncStatuses.Count(x => x.Status == ProductSyncRunStatus.Succeeded),
                 syncStatuses.Count(x => x.Status is ProductSyncRunStatus.Pending or ProductSyncRunStatus.Running),
@@ -429,6 +485,9 @@ public sealed class AdminDashboardController : ControllerBase
             "today" => "day",
             "daily" => "day",
             "day" => "day",
+            "thisweek" => "week",
+            "weekly" => "week",
+            "week" => "week",
             "thismonth" => "month",
             "monthly" => "month",
             "month" => "month",
@@ -447,6 +506,7 @@ public sealed class AdminDashboardController : ControllerBase
     {
         return period switch
         {
+            "week" => (GetWeekStart(date), GetWeekStart(date).AddDays(7)),
             "month" => (
                 new DateOnly(date.Year, date.Month, 1),
                 new DateOnly(date.Year, date.Month, 1).AddMonths(1)),
@@ -463,10 +523,17 @@ public sealed class AdminDashboardController : ControllerBase
     {
         return period switch
         {
+            "week" => (currentStartDate.AddDays(-7), currentStartDate),
             "month" => (currentStartDate.AddMonths(-1), currentStartDate),
             "year" => (currentStartDate.AddYears(-1), currentStartDate),
             _ => (currentStartDate.AddDays(-1), currentStartDate)
         };
+    }
+
+    private static DateOnly GetWeekStart(DateOnly date)
+    {
+        var daysSinceMonday = ((int)date.DayOfWeek + 6) % 7;
+        return date.AddDays(-daysSinceMonday);
     }
 
     private static string GetComparisonLabel(string period)
@@ -475,6 +542,7 @@ public sealed class AdminDashboardController : ControllerBase
         {
             "month" => "\u0E40\u0E14\u0E37\u0E2D\u0E19\u0E01\u0E48\u0E2D\u0E19",
             "year" => "\u0E1B\u0E35\u0E01\u0E48\u0E2D\u0E19",
+            "week" => "\u0E2A\u0E31\u0E1B\u0E14\u0E32\u0E2B\u0E4C\u0E01\u0E48\u0E2D\u0E19",
             _ => "\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E27\u0E32\u0E19"
         };
     }
@@ -614,6 +682,7 @@ public sealed record AdminDashboardResponse(
     DashboardOrdersResponse Orders,
     DashboardInventoryResponse Inventory,
     DashboardPaymentsResponse Payments,
+    DashboardShippingResponse Shipping,
     DashboardSyncResponse ZortSync);
 
 public sealed record DashboardSalesResponse(
@@ -672,6 +741,22 @@ public sealed record DashboardPaymentsResponse(
     int PartialPayment,
     int ExcessPayment,
     int Voided);
+
+public sealed record DashboardShippingResponse(
+    int InTransit,
+    int Delivered,
+    int Returned,
+    IReadOnlyCollection<DashboardShippingOrderResponse> Latest);
+
+public sealed record DashboardShippingOrderResponse(
+    Guid Id,
+    string Number,
+    string? CustomerName,
+    string? ShippingChannel,
+    string? TrackingNo,
+    string Status,
+    DateTime? OrderDate,
+    DateTime? ShippingDate);
 
 public sealed record DashboardSyncResponse(
     int Succeeded,
