@@ -39,7 +39,7 @@ public static class ServiceCollectionExtensions
                 options.UseNpgsqlConnection(connectionString)));
         services.AddHangfireServer(options =>
         {
-            options.WorkerCount = Math.Max(Environment.ProcessorCount, 2);
+            options.WorkerCount = configuration.GetHangfireWorkerCount();
             options.Queues = ["default"];
         });
         services.AddScoped<IPersistentBackgroundJobClient, HangfirePersistentBackgroundJobClient>();

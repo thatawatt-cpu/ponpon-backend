@@ -2,8 +2,8 @@ namespace PonPon.Modules.Ordering.Application.Features.Orders.GetOrders;
 
 public sealed record GetOrdersQuery(
     string? Keyword,
-    ZortOrderStatus? Status,
-    ZortPaymentStatus? PaymentStatus,
+    string? Status,
+    string? PaymentStatus,
     string? ReturnRequestStatus,
     string? RefundRequestStatus,
     DateTime? DateFrom,

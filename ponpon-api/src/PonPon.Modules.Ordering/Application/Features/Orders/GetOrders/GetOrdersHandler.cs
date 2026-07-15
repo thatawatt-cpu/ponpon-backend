@@ -22,14 +22,13 @@ public sealed class GetOrdersHandler
     {
         var page = Math.Max(query.Page, 1);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
-        var returnRequestStatus = NormalizeReturnRequestStatus(query.ReturnRequestStatus);
-        var refundRequestStatus = NormalizeRefundRequestStatus(query.RefundRequestStatus);
+        var filters = NormalizeAdminOrderFilters(query);
         var orders = await _orders.GetAsync(
             query.Keyword,
-            query.Status?.ToString(),
-            query.PaymentStatus?.ToString(),
-            returnRequestStatus,
-            refundRequestStatus,
+            filters.Status,
+            filters.PaymentStatus,
+            filters.ReturnRequestStatus,
+            filters.RefundRequestStatus,
             query.DateFrom,
             query.DateTo,
             NormalizeFilter(query.ShippingChannel),
@@ -72,6 +71,106 @@ public sealed class GetOrdersHandler
 
     private static string? NormalizeFilter(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static AdminOrderFilters NormalizeAdminOrderFilters(GetOrdersQuery query)
+    {
+        var status = NormalizeFilter(query.Status);
+        var paymentStatus = NormalizePaymentStatus(query.PaymentStatus);
+        var returnRequestStatus = NormalizeReturnRequestStatus(query.ReturnRequestStatus);
+        var refundRequestStatus = NormalizeRefundRequestStatus(query.RefundRequestStatus);
+
+        if (status is null)
+        {
+            return new AdminOrderFilters(null, paymentStatus, returnRequestStatus, refundRequestStatus);
+        }
+
+        return status.Trim().ToLowerInvariant() switch
+        {
+            "all" => new AdminOrderFilters(null, paymentStatus, returnRequestStatus, refundRequestStatus),
+            "pending_payment" => new AdminOrderFilters(
+                null,
+                paymentStatus ?? ZortPaymentStatus.Pending.ToString(),
+                returnRequestStatus,
+                refundRequestStatus),
+            "paid" or "packing" => new AdminOrderFilters(
+                ZortOrderStatus.Waiting.ToString(),
+                paymentStatus ?? ZortPaymentStatus.Paid.ToString(),
+                returnRequestStatus,
+                refundRequestStatus),
+            "packed" => new AdminOrderFilters(
+                ZortOrderStatus.Packed.ToString(),
+                paymentStatus ?? ZortPaymentStatus.Paid.ToString(),
+                returnRequestStatus,
+                refundRequestStatus),
+            "shipped" => new AdminOrderFilters(
+                ZortOrderStatus.Shipping.ToString(),
+                paymentStatus ?? ZortPaymentStatus.Paid.ToString(),
+                returnRequestStatus,
+                refundRequestStatus),
+            "completed" => new AdminOrderFilters(
+                ZortOrderStatus.Success.ToString(),
+                paymentStatus,
+                returnRequestStatus,
+                refundRequestStatus),
+            "cancelled" or "canceled" => new AdminOrderFilters(
+                ZortOrderStatus.Voided.ToString(),
+                paymentStatus,
+                returnRequestStatus,
+                refundRequestStatus),
+            "refund_requested" => new AdminOrderFilters(
+                null,
+                paymentStatus,
+                returnRequestStatus ?? OrderReturnRequestStatus.Requested,
+                refundRequestStatus ?? OrderRefundStatus.ManualRefundPending),
+            "refunded" => new AdminOrderFilters(
+                null,
+                paymentStatus,
+                returnRequestStatus,
+                refundRequestStatus ?? OrderRefundStatus.ManualRefunded),
+            _ => new AdminOrderFilters(
+                NormalizeOrderStatus(status),
+                paymentStatus,
+                returnRequestStatus,
+                refundRequestStatus)
+        };
+    }
+
+    private static string NormalizeOrderStatus(string status)
+    {
+        if (Enum.TryParse<ZortOrderStatus>(status, ignoreCase: true, out var named))
+        {
+            return named.ToString();
+        }
+
+        if (int.TryParse(status, out var numeric) && Enum.IsDefined(typeof(ZortOrderStatus), numeric))
+        {
+            return ((ZortOrderStatus)numeric).ToString();
+        }
+
+        throw new BadRequestException(
+            "Order status must be one of pending_payment, paid, packing, packed, shipped, completed, cancelled, refund_requested, refunded, or a valid ZORT order status.");
+    }
+
+    private static string? NormalizePaymentStatus(string? paymentStatus)
+    {
+        if (string.IsNullOrWhiteSpace(paymentStatus))
+        {
+            return null;
+        }
+
+        var trimmed = paymentStatus.Trim();
+        if (Enum.TryParse<ZortPaymentStatus>(trimmed, ignoreCase: true, out var named))
+        {
+            return named.ToString();
+        }
+
+        if (int.TryParse(trimmed, out var numeric) && Enum.IsDefined(typeof(ZortPaymentStatus), numeric))
+        {
+            return ((ZortPaymentStatus)numeric).ToString();
+        }
+
+        throw new BadRequestException("Payment status must be a valid ZORT payment status.");
+    }
 
     private static IReadOnlyCollection<string> GetAllowedActions(Order order)
     {
@@ -122,4 +221,10 @@ public sealed class GetOrdersHandler
                 "Refund request status must be Pending or Refunded.")
         };
     }
+
+    private sealed record AdminOrderFilters(
+        string? Status,
+        string? PaymentStatus,
+        string? ReturnRequestStatus,
+        string? RefundRequestStatus);
 }

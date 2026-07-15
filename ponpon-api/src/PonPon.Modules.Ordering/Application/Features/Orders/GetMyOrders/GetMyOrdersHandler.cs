@@ -27,9 +27,9 @@ public sealed class GetMyOrdersHandler
         var customerId = GetCustomerId();
         var page = Math.Max(query.Page, 1);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
+        var filter = ParseFilter(query.Filter);
         var statusFilter = ParseStatusFilter<ZortOrderStatus>(query.Status);
         var paymentStatusFilter = ParseStatusFilter<ZortPaymentStatus>(query.PaymentStatus);
-        var filter = ParseFilter(query.Filter);
 
         var projection = await _orders.GetCustomerOrdersAsync(
             customerId, statusFilter, paymentStatusFilter, filter, page, pageSize, cancellationToken);
@@ -127,12 +127,15 @@ public sealed class GetMyOrdersHandler
 
         return value.Trim().ToLowerInvariant() switch
         {
+            "pending_payment" or "pending-payment" => MyOrderFilter.PendingPayment,
+            "preparing" or "prepare" or "paid" => MyOrderFilter.Preparing,
             "awaiting_receive" or "awaiting-receive" => MyOrderFilter.AwaitingReceive,
             "completed" => MyOrderFilter.Completed,
+            "cancelled" or "canceled" => MyOrderFilter.Cancelled,
             "return_refund" or "return-refund" => MyOrderFilter.ReturnRefund,
             "awaiting_review" or "awaiting-review" => MyOrderFilter.AwaitingReview,
             _ => throw new BadRequestException(
-                "Order filter must be awaiting_receive, completed, return_refund, or awaiting_review.")
+                "Order filter must be pending_payment, preparing, awaiting_receive, completed, awaiting_review, cancelled, or return_refund.")
         };
     }
 }

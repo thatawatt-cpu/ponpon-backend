@@ -4,6 +4,7 @@ using PonPon.Modules.Ordering.Application;
 using PonPon.Modules.Ordering.Application.Abstractions;
 using PonPon.Modules.Ordering.Application.Features.Orders.GetMyOrders;
 using PonPon.Modules.Ordering.Domain.Orders;
+using PonPon.Modules.Ordering.Domain.Returns;
 
 namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Repositories;
 
@@ -94,7 +95,15 @@ public sealed class OrderRepository : IOrderRepository
             baseQuery = baseQuery.Where(x => x.SalesChannel == salesChannel);
         }
 
-        if (!string.IsNullOrWhiteSpace(returnRequestStatus))
+        if (IsReturnOrRefundRequestedFilter(returnRequestStatus, refundRequestStatus))
+        {
+            baseQuery = baseQuery.Where(order =>
+                _dbContext.OrderReturnRequests.Any(
+                    request => request.OrderId == order.Id
+                               && request.Status == returnRequestStatus)
+                || order.OmiseRefundStatus == refundRequestStatus);
+        }
+        else if (!string.IsNullOrWhiteSpace(returnRequestStatus))
         {
             baseQuery = baseQuery.Where(order => _dbContext.OrderReturnRequests.Any(
                 request => request.OrderId == order.Id
@@ -104,6 +113,13 @@ public sealed class OrderRepository : IOrderRepository
         if (!string.IsNullOrWhiteSpace(refundRequestStatus))
         {
             baseQuery = baseQuery.Where(x => x.OmiseRefundStatus == refundRequestStatus);
+        }
+
+        if (ShouldExcludeReturnOrRefundWorkflow(status, paymentStatus, returnRequestStatus, refundRequestStatus))
+        {
+            baseQuery = baseQuery.Where(order =>
+                !_dbContext.OrderReturnRequests.Any(request => request.OrderId == order.Id)
+                && string.IsNullOrWhiteSpace(order.OmiseRefundStatus));
         }
 
         var statusCounts = await baseQuery
@@ -139,6 +155,19 @@ public sealed class OrderRepository : IOrderRepository
 
         return new AdminOrderListProjection(items, total, statusCounts);
     }
+
+    private static bool ShouldExcludeReturnOrRefundWorkflow(
+        string? status,
+        string? paymentStatus,
+        string? returnRequestStatus,
+        string? refundRequestStatus)
+        => (!string.IsNullOrWhiteSpace(status) || !string.IsNullOrWhiteSpace(paymentStatus))
+           && string.IsNullOrWhiteSpace(returnRequestStatus)
+           && string.IsNullOrWhiteSpace(refundRequestStatus);
+
+    private static bool IsReturnOrRefundRequestedFilter(string? returnRequestStatus, string? refundRequestStatus)
+        => string.Equals(returnRequestStatus, OrderReturnRequestStatus.Requested, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(refundRequestStatus, OrderRefundStatus.ManualRefundPending, StringComparison.OrdinalIgnoreCase);
 
     private static IOrderedQueryable<Order> ApplySort(
         IQueryable<Order> query,
@@ -270,6 +299,18 @@ public sealed class OrderRepository : IOrderRepository
 
         return filter switch
         {
+            MyOrderFilter.PendingPayment => query.Where(x =>
+                x.PaymentStatus == "Pending"
+                || x.PaymentStatus == ((int)ZortPaymentStatus.Pending).ToString()),
+            MyOrderFilter.Preparing => query.Where(x =>
+                (x.Status == "Waiting"
+                    || x.Status == ((int)ZortOrderStatus.Waiting).ToString()
+                    || x.Status == "Packed"
+                    || x.Status == ((int)ZortOrderStatus.Packed).ToString())
+                && (x.PaymentStatus == "Paid"
+                    || x.PaymentStatus == ((int)ZortPaymentStatus.Paid).ToString())
+                && x.OmiseRefundStatus == null
+                && !_dbContext.OrderReturnRequests.Any(request => request.OrderId == x.Id)),
             MyOrderFilter.AwaitingReceive => query.Where(x =>
                 x.ReceivedAtUtc == null
                 && (x.Status == "Shipping"
@@ -277,6 +318,9 @@ public sealed class OrderRepository : IOrderRepository
                     || x.Status == "Success"
                     || x.Status == ((int)ZortOrderStatus.Success).ToString())),
             MyOrderFilter.Completed => query.Where(x => x.ReceivedAtUtc != null),
+            MyOrderFilter.Cancelled => query.Where(x =>
+                x.Status == "Voided"
+                || x.Status == ((int)ZortOrderStatus.Voided).ToString()),
             MyOrderFilter.ReturnRefund => query.Where(x =>
                 x.Status == "Returned"
                 || x.Status == ((int)ZortOrderStatus.Returned).ToString()
