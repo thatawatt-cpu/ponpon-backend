@@ -2,6 +2,8 @@ using System.Text.Json;
 using PonPon.Modules.Catalog.Application.Abstractions;
 using PonPon.Modules.Ordering.Application.Abstractions;
 using PonPon.Modules.Ordering.Application.Features.Orders.GetMyOrderById;
+using PonPon.Modules.Ordering.Domain.Orders;
+using PonPon.Modules.Ordering.Domain.Returns;
 using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
 
@@ -56,6 +58,10 @@ public sealed class GetMyOrdersHandler
             p.Order.TrackingNo,
             p.Order.OrderDate,
             p.Order.ReceivedAtUtc,
+            p.ReturnRequestStatus,
+            p.Order.OmiseRefundStatus,
+            GetReturnRefundStatus(p.ReturnRequestStatus, p.Order.OmiseRefundStatus),
+            GetReturnRefundText(p.ReturnRequestStatus, p.Order.OmiseRefundStatus),
             p.ItemsCount,
             p.ItemsPreview.Select(preview =>
             {
@@ -86,6 +92,35 @@ public sealed class GetMyOrdersHandler
 
         return new MyOrdersPagedResponse(items, page, pageSize, projection.Total, page * pageSize < projection.Total);
     }
+
+    private static string? GetReturnRefundStatus(string? returnRequestStatus, string? omiseRefundStatus)
+    {
+        if (string.IsNullOrWhiteSpace(returnRequestStatus) && string.IsNullOrWhiteSpace(omiseRefundStatus))
+        {
+            return null;
+        }
+
+        return IsReturnRefundCompleted(returnRequestStatus, omiseRefundStatus)
+            ? "completed"
+            : "pending";
+    }
+
+    private static string? GetReturnRefundText(string? returnRequestStatus, string? omiseRefundStatus)
+    {
+        if (string.IsNullOrWhiteSpace(returnRequestStatus) && string.IsNullOrWhiteSpace(omiseRefundStatus))
+        {
+            return null;
+        }
+
+        return IsReturnRefundCompleted(returnRequestStatus, omiseRefundStatus)
+            ? "สำเร็จ"
+            : "รอพิจารณา";
+    }
+
+    private static bool IsReturnRefundCompleted(string? returnRequestStatus, string? omiseRefundStatus)
+        => string.Equals(returnRequestStatus, OrderReturnRequestStatus.Completed, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(omiseRefundStatus, OrderRefundStatus.ManualRefunded, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(omiseRefundStatus, "closed", StringComparison.OrdinalIgnoreCase);
 
     private Guid GetCustomerId()
     {

@@ -10,7 +10,8 @@ public sealed record CustomerOrderListProjection(
 public sealed record CustomerOrderItem(
     Order Order,
     int ItemsCount,
-    IReadOnlyList<CustomerOrderItemPreview> ItemsPreview);
+    IReadOnlyList<CustomerOrderItemPreview> ItemsPreview,
+    string? ReturnRequestStatus);
 
 public sealed record CustomerOrderItemPreview(
     OrderItem Item,

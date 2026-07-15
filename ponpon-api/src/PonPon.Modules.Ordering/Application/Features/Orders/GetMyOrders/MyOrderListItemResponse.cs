@@ -20,6 +20,10 @@ public sealed record MyOrderListItemResponse(
     string? TrackingNo,
     DateTime? OrderDate,
     DateTime? ReceivedAtUtc,
+    string? ReturnRequestStatus,
+    string? OmiseRefundStatus,
+    string? ReturnRefundStatus,
+    string? ReturnRefundText,
     int ItemsCount,
     IReadOnlyCollection<MyOrderListItemPreviewResponse> ItemsPreview);
 

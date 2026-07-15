@@ -271,6 +271,12 @@ public sealed class OrderRepository : IOrderRepository
             .ToArrayAsync(cancellationToken);
 
         var orderIds = orders.Select(o => o.Id).ToArray();
+        var returnStatuses = await _dbContext.OrderReturnRequests
+            .AsNoTracking()
+            .Where(x => orderIds.Contains(x.OrderId))
+            .Select(x => new { x.OrderId, x.Status })
+            .GroupBy(x => x.OrderId)
+            .ToDictionaryAsync(x => x.Key, x => x.First().Status, cancellationToken);
 
         var allItems = await _dbContext.Set<OrderItem>()
             .AsNoTracking()
@@ -300,7 +306,8 @@ public sealed class OrderRepository : IOrderRepository
                         item,
                         reviewIdsByOrderItem.GetValueOrDefault(item.Id)))
                     .ToArray()
-                : []
+                : [],
+            returnStatuses.GetValueOrDefault(o.Id)
         )).ToArray();
 
         return new CustomerOrderListProjection(items, total);
