@@ -17,10 +17,11 @@ namespace PonPon.Modules.Catalog.Controllers;
 
 [ApiController]
 [Route("api/admin/products")]
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "permission:products.read")]
 public sealed class AdminProductsController : ControllerBase
 {
     [HttpPost("sync-zort")]
+    [Authorize(Policy = "permission:products.manage")]
     public async Task<ActionResult<SyncQueuedResponse>> SyncZort(
         [FromBody] SyncProductsFromZortRequest request,
         [FromServices] IProductSyncRunRepository syncRuns,
@@ -68,6 +69,7 @@ public sealed class AdminProductsController : ControllerBase
     }
 
     [HttpPatch("{id:guid}/visibility")]
+    [Authorize(Policy = "permission:products.manage")]
     public async Task<IActionResult> UpdateVisibility(Guid id, [FromBody] UpdateProductVisibilityRequest request, [FromServices] UpdateProductVisibilityHandler handler, CancellationToken cancellationToken)
     {
         await handler.HandleAsync(new UpdateProductVisibilityCommand(id, request.IsVisibleOnLiff), cancellationToken);
@@ -75,6 +77,7 @@ public sealed class AdminProductsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/images/upload")]
+    [Authorize(Policy = "permission:products.manage")]
     public async Task<ActionResult<UploadProductImageResponse>> UploadImage(Guid id, IFormFile file, [FromServices] UploadProductImageHandler handler, CancellationToken cancellationToken)
     {
         await using var stream = file.OpenReadStream();
@@ -83,6 +86,7 @@ public sealed class AdminProductsController : ControllerBase
     }
 
     [HttpPut("{id:guid}/images")]
+    [Authorize(Policy = "permission:products.manage")]
     public async Task<IActionResult> UpdateImages(Guid id, [FromBody] UpdateProductImagesRequest request, [FromServices] UpdateProductImagesHandler handler, CancellationToken cancellationToken)
     {
         await handler.HandleAsync(new UpdateProductImagesCommand(
@@ -92,6 +96,7 @@ public sealed class AdminProductsController : ControllerBase
     }
 
     [HttpPut("{id:guid}/ponpon-settings")]
+    [Authorize(Policy = "permission:products.manage")]
     public async Task<IActionResult> UpdatePonPonSettings(Guid id, [FromBody] UpdateProductPonPonSettingsRequest request, [FromServices] UpdateProductPonPonSettingsHandler handler, CancellationToken cancellationToken)
     {
         await handler.HandleAsync(new UpdateProductPonPonSettingsCommand(

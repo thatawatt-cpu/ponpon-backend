@@ -14,7 +14,7 @@ namespace PonPon.Api.Controllers;
 
 [ApiController]
 [Route("api/admin/dashboard")]
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "permission:dashboard.read")]
 public sealed class AdminDashboardController : ControllerBase
 {
     private const string DefaultTimeZone = "Asia/Bangkok";

@@ -6,7 +6,7 @@ namespace PonPon.Modules.Reviews.Controllers;
 
 [ApiController]
 [Route("api/admin/reviews")]
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "permission:reviews.read")]
 public sealed class AdminReviewsController : ControllerBase
 {
     [HttpGet]
@@ -42,6 +42,7 @@ public sealed class AdminReviewsController : ControllerBase
     }
 
     [HttpPatch("{reviewId:guid}/status")]
+    [Authorize(Policy = "permission:reviews.manage")]
     public async Task<ActionResult<ReviewResponse>> UpdateStatus(
         Guid reviewId,
         [FromBody] UpdateReviewStatusRequest request,
@@ -52,6 +53,7 @@ public sealed class AdminReviewsController : ControllerBase
     }
 
     [HttpPatch("bulk/status")]
+    [Authorize(Policy = "permission:reviews.manage")]
     public async Task<ActionResult<BulkUpdateReviewStatusResponse>> BulkUpdateStatus(
         [FromBody] BulkUpdateReviewStatusRequest request,
         [FromServices] ReviewService service,
@@ -61,6 +63,7 @@ public sealed class AdminReviewsController : ControllerBase
     }
 
     [HttpDelete("{reviewId:guid}")]
+    [Authorize(Policy = "permission:reviews.manage")]
     public async Task<IActionResult> DeleteReview(
         Guid reviewId,
         [FromServices] ReviewService service,

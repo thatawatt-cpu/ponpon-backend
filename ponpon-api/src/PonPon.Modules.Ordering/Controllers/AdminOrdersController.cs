@@ -18,7 +18,7 @@ namespace PonPon.Modules.Ordering.Controllers;
 
 [ApiController]
 [Route("api/admin/orders")]
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "permission:orders.read")]
 public sealed class AdminOrdersController : ControllerBase
 {
     [HttpGet("{id:guid}/pricing-snapshot")]
@@ -37,6 +37,7 @@ public sealed class AdminOrdersController : ControllerBase
     }
 
     [HttpPost("sync-zort")]
+    [Authorize(Policy = "permission:orders.manage")]
     public async Task<ActionResult<OrderSyncQueuedResponse>> SyncZort(
         [FromBody] SyncOrdersFromZortRequest request,
         [FromServices] IOrderSyncRunRepository syncRuns,
@@ -95,6 +96,7 @@ public sealed class AdminOrdersController : ControllerBase
     }
 
     [HttpPost("bulk/export")]
+    [Authorize(Policy = "permission:orders.manage")]
     public async Task<ActionResult<OrderBulkExportResponse>> BulkExport(
         [FromBody] OrderBulkExportRequest request,
         [FromServices] OrderingDbContext dbContext,
@@ -135,6 +137,7 @@ public sealed class AdminOrdersController : ControllerBase
     }
 
     [HttpPost("{id:guid}/cancel")]
+    [Authorize(Policy = "permission:orders.manage")]
     public async Task<IActionResult> CancelOrder(
         Guid id,
         [FromBody] CancelOrderRequest request,
@@ -146,6 +149,7 @@ public sealed class AdminOrdersController : ControllerBase
     }
 
     [HttpPost("{id:guid}/approve-manual-refund")]
+    [Authorize(Policy = "permission:orders.refund")]
     public async Task<IActionResult> ApproveManualRefund(
         Guid id,
         [FromBody] ApproveManualRefundRequest request,
@@ -187,6 +191,7 @@ public sealed class AdminOrdersController : ControllerBase
     }
 
     [HttpPatch("{id:guid}/return-request")]
+    [Authorize(Policy = "permission:orders.manage")]
     public async Task<ActionResult<OrderReturnRequestResponse>> UpdateReturnRequest(
         Guid id,
         [FromBody] UpdateOrderReturnRequestRequest request,

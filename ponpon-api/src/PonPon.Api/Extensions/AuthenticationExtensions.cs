@@ -1,6 +1,8 @@
 ﻿using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
+using PonPon.Api.Authorization;
 using PonPon.Modules.Identity.Infrastructure.Jwt;
 
 namespace PonPon.Api.Extensions;
@@ -47,6 +49,8 @@ public static class AuthenticationExtensions
             });
 
         services.AddAuthorization();
+        services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
+        services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
         return services;
     }
 }

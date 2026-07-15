@@ -9,7 +9,7 @@ using PonPon.Shared.Application.Exceptions;
 namespace PonPon.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin")]
+[Authorize(Policy = "permission:customers.read")]
 public sealed class AdminCustomersController : ControllerBase
 {
     [HttpGet("api/admin/customers")]
