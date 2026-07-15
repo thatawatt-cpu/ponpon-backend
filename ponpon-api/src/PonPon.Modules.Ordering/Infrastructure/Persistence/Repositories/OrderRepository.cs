@@ -10,6 +10,8 @@ namespace PonPon.Modules.Ordering.Infrastructure.Persistence.Repositories;
 
 public sealed class OrderRepository : IOrderRepository
 {
+    private const string AnyReturnOrRefundStatus = "__any_return_or_refund__";
+
     private readonly OrderingDbContext _dbContext;
 
     public OrderRepository(OrderingDbContext dbContext)
@@ -95,7 +97,15 @@ public sealed class OrderRepository : IOrderRepository
             baseQuery = baseQuery.Where(x => x.SalesChannel == salesChannel);
         }
 
-        if (IsReturnOrRefundRequestedFilter(returnRequestStatus, refundRequestStatus))
+        if (IsReturnOrRefundAnyFilter(returnRequestStatus, refundRequestStatus))
+        {
+            baseQuery = baseQuery.Where(order =>
+                order.Status == "Returned"
+                || order.Status == ((int)ZortOrderStatus.Returned).ToString()
+                || !string.IsNullOrWhiteSpace(order.OmiseRefundStatus)
+                || _dbContext.OrderReturnRequests.Any(request => request.OrderId == order.Id));
+        }
+        else if (IsReturnOrRefundRequestedFilter(returnRequestStatus, refundRequestStatus))
         {
             baseQuery = baseQuery.Where(order =>
                 _dbContext.OrderReturnRequests.Any(
@@ -168,6 +178,10 @@ public sealed class OrderRepository : IOrderRepository
     private static bool IsReturnOrRefundRequestedFilter(string? returnRequestStatus, string? refundRequestStatus)
         => string.Equals(returnRequestStatus, OrderReturnRequestStatus.Requested, StringComparison.OrdinalIgnoreCase)
            && string.Equals(refundRequestStatus, OrderRefundStatus.ManualRefundPending, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsReturnOrRefundAnyFilter(string? returnRequestStatus, string? refundRequestStatus)
+        => string.Equals(returnRequestStatus, AnyReturnOrRefundStatus, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(refundRequestStatus, AnyReturnOrRefundStatus, StringComparison.OrdinalIgnoreCase);
 
     private static IOrderedQueryable<Order> ApplySort(
         IQueryable<Order> query,

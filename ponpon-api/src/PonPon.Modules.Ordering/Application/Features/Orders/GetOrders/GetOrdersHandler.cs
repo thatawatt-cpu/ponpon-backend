@@ -7,6 +7,8 @@ namespace PonPon.Modules.Ordering.Application.Features.Orders.GetOrders;
 
 public sealed class GetOrdersHandler
 {
+    private const string AnyReturnOrRefundStatus = "__any_return_or_refund__";
+
     private readonly IOrderRepository _orders;
     private readonly IOrderSyncRunRepository _syncRuns;
 
@@ -117,6 +119,11 @@ public sealed class GetOrdersHandler
                 paymentStatus,
                 returnRequestStatus,
                 refundRequestStatus),
+            "return_refund" or "return-refund" => new AdminOrderFilters(
+                null,
+                paymentStatus,
+                returnRequestStatus ?? AnyReturnOrRefundStatus,
+                refundRequestStatus ?? AnyReturnOrRefundStatus),
             "refund_requested" => new AdminOrderFilters(
                 null,
                 paymentStatus,
@@ -148,7 +155,7 @@ public sealed class GetOrdersHandler
         }
 
         throw new BadRequestException(
-            "Order status must be one of pending_payment, paid, packing, packed, shipped, completed, cancelled, refund_requested, refunded, or a valid ZORT order status.");
+            "Order status must be one of pending_payment, paid, packing, packed, shipped, completed, cancelled, return_refund, refund_requested, refunded, or a valid ZORT order status.");
     }
 
     private static string? NormalizePaymentStatus(string? paymentStatus)
