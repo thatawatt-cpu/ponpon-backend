@@ -13,6 +13,9 @@ public sealed record ProductListItemReadModel(
     int AvailableStock,
     string? ImageUrl,
     string? CategoryName,
+    bool IsFeatured,
+    bool IsBestSeller,
+    string? PromotionBadge,
     bool IsActiveFromZort,
     bool IsVisibleOnLiff,
     ProductSource Source,
@@ -21,3 +24,7 @@ public sealed record ProductListItemReadModel(
     int VariantAvailableStock,
     int VariantCount,
     IReadOnlyCollection<string> VariantImages);
+
+public sealed record ProductListPageReadModel(
+    IReadOnlyCollection<ProductListItemReadModel> Items,
+    int Total);

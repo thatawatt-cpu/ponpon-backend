@@ -62,6 +62,22 @@ public sealed class AdminProductsController : ControllerBase
         return Ok(await handler.HandleAsync(new GetProductsQuery(keyword, null, status, source, page, pageSize, IncludeInactive: true), cancellationToken));
     }
 
+    [HttpGet("paged")]
+    public async Task<ActionResult<ProductListPageResponse>> GetProductsPage(
+        [FromQuery] string? keyword,
+        [FromQuery] string? category,
+        [FromQuery] ProductStatus? status,
+        [FromQuery] ProductSource? source,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromServices] GetProductsHandler handler = null!,
+        CancellationToken cancellationToken = default)
+    {
+        return Ok(await handler.HandleAdminPageAsync(
+            new GetProductsQuery(keyword, category, status, source, page, pageSize, IncludeInactive: true),
+            cancellationToken));
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ProductDetailResponse>> GetProductById(Guid id, [FromServices] GetProductByIdHandler handler, CancellationToken cancellationToken)
     {

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PonPon.Modules.Catalog.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using PonPon.Modules.Catalog.Infrastructure.Persistence;
 namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CatalogDbContext))]
-    partial class CatalogDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260716072002_OptimizeAdminProductList")]
+    partial class OptimizeAdminProductList
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -122,19 +125,19 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly>("EndDate")
                         .HasColumnType("date");
 
-                b.Property<string>("Name")
-                    .IsRequired()
-                    .HasMaxLength(256)
-                    .HasColumnType("character varying(256)");
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
-           b.Property<bool>("IsActive")
-               .ValueGeneratedOnAdd()
-               .HasColumnType("boolean")
-               .HasDefaultValue(false);
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
-                b.PrimitiveCollection<string[]>("Slots")
-                    .IsRequired()
-                    .HasColumnType("text[]");
+                    b.PrimitiveCollection<string[]>("Slots")
+                        .IsRequired()
+                        .HasColumnType("text[]");
 
                     b.Property<DateOnly>("StartDate")
                         .HasColumnType("date");
@@ -142,12 +145,12 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                b.HasKey("Id");
+                    b.HasKey("Id");
 
-           b.HasIndex("IsActive", "StartDate", "EndDate");
+                    b.HasIndex("IsActive", "StartDate", "EndDate");
 
-                b.ToTable("flash_sales", "catalog");
-            });
+                    b.ToTable("flash_sales", "catalog");
+                });
 
             modelBuilder.Entity("PonPon.Modules.Catalog.Domain.FlashSales.FlashSaleProduct", b =>
                 {
@@ -430,19 +433,19 @@ namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("BaseSku");
 
-                    b.HasIndex("CategoryName", "IsActiveFromZort", "IsVisibleOnLiff", "Status", "AvailableStock", "Name")
-                        .HasDatabaseName("IX_products_customer_category_list");
-
-                    b.HasIndex("IsActiveFromZort", "IsVisibleOnLiff", "Status", "AvailableStock", "Name")
-                        .HasDatabaseName("IX_products_customer_list");
-
                     b.HasIndex("Slug")
                         .IsUnique();
+
+                    b.HasIndex("ZortProductId");
 
                     b.HasIndex("Status", "Source", "UpdatedAt", "CreatedAt")
                         .HasDatabaseName("IX_products_admin_list");
 
-                    b.HasIndex("ZortProductId");
+                    b.HasIndex("IsActiveFromZort", "IsVisibleOnLiff", "Status", "AvailableStock", "Name")
+                        .HasDatabaseName("IX_products_customer_list");
+
+                    b.HasIndex("CategoryName", "IsActiveFromZort", "IsVisibleOnLiff", "Status", "AvailableStock", "Name")
+                        .HasDatabaseName("IX_products_customer_category_list");
 
                     b.ToTable("products", "catalog");
                 });

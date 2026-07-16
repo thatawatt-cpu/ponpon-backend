@@ -12,6 +12,7 @@ public interface IProductRepository
     Task<IReadOnlyCollection<Features.Products.GetProducts.ProductListItemReadModel>> GetRelatedCustomerProductListItemsAsync(Guid productId, string? categoryName, int limit, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<Product>> GetAdminProductsAsync(string? keyword, ProductStatus? status, ProductSource? source, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<Features.Products.GetProducts.ProductListItemReadModel>> GetAdminProductListItemsAsync(string? keyword, ProductStatus? status, ProductSource? source, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<Features.Products.GetProducts.ProductListPageReadModel> GetAdminProductListPageAsync(string? keyword, string? category, ProductStatus? status, ProductSource? source, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<Product>> GetByIdsAsync(IReadOnlySet<Guid> ids, CancellationToken cancellationToken = default);
     Task<Product?> GetByIdWithVariantsAsync(Guid id, CancellationToken cancellationToken = default);

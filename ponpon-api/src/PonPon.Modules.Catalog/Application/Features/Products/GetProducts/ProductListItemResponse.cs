@@ -20,9 +20,19 @@ public sealed record ProductListItemResponse(
     IReadOnlyCollection<string> Badges,
     string? ImageUrl,
     string? CategoryName,
+    bool IsFeatured,
+    bool IsBestSeller,
+    string? PromotionBadge,
     bool IsActiveFromZort,
     bool IsVisibleOnLiff,
     int VariantCount,
     IReadOnlyCollection<string> VariantImages,
     ProductSource Source,
     ProductStatus Status);
+
+public sealed record ProductListPageResponse(
+    IReadOnlyCollection<ProductListItemResponse> Items,
+    int Total,
+    int Page,
+    int PageSize,
+    int TotalPages);

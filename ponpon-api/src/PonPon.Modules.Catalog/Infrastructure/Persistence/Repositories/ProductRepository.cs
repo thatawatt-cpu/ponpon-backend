@@ -30,7 +30,8 @@ public sealed class ProductRepository : IProductRepository
             .Include(x => x.Variants)
             .Where(x => x.IsActiveFromZort && x.IsVisibleOnLiff && x.Status == ProductStatus.Active && x.AvailableStock > 0);
         query = ApplyKeyword(query, keyword);
-        if (!string.IsNullOrWhiteSpace(category))
+        if (!string.IsNullOrWhiteSpace(category)
+            && !string.Equals(category.Trim(), "all", StringComparison.OrdinalIgnoreCase))
         {
             query = query.Where(x => x.CategoryName == category);
         }
@@ -64,6 +65,9 @@ public sealed class ProductRepository : IProductRepository
                 x.AvailableStock,
                 x.ImageUrl,
                 x.CategoryName,
+                x.IsFeatured,
+                x.IsBestSeller,
+                x.PromotionBadge,
                 x.IsActiveFromZort,
                 x.IsVisibleOnLiff,
                 x.Source,
@@ -135,6 +139,9 @@ public sealed class ProductRepository : IProductRepository
                 x.AvailableStock,
                 x.ImageUrl,
                 x.CategoryName,
+                x.IsFeatured,
+                x.IsBestSeller,
+                x.PromotionBadge,
                 x.IsActiveFromZort,
                 x.IsVisibleOnLiff,
                 x.Source,
@@ -230,8 +237,45 @@ public sealed class ProductRepository : IProductRepository
 
     public async Task<IReadOnlyCollection<Application.Features.Products.GetProducts.ProductListItemReadModel>> GetAdminProductListItemsAsync(string? keyword, ProductStatus? status, ProductSource? source, int page, int pageSize, CancellationToken cancellationToken = default)
     {
-        var query = _dbContext.Products.AsNoTracking().AsQueryable();
-        query = ApplyKeyword(query, keyword);
+        var products = await GetAdminProductPageRowsAsync(
+            BuildAdminProductListQuery(keyword, null, status, source),
+            page,
+            pageSize,
+            cancellationToken);
+
+        return await HydrateListRowsAsync(products, cancellationToken);
+    }
+
+    public async Task<Application.Features.Products.GetProducts.ProductListPageReadModel> GetAdminProductListPageAsync(
+        string? keyword,
+        string? category,
+        ProductStatus? status,
+        ProductSource? source,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var query = BuildAdminProductListQuery(keyword, category, status, source);
+        var total = await query.CountAsync(cancellationToken);
+        var products = await GetAdminProductPageRowsAsync(query, page, pageSize, cancellationToken);
+        var items = await HydrateListRowsAsync(products, cancellationToken);
+        return new Application.Features.Products.GetProducts.ProductListPageReadModel(items, total);
+    }
+
+    private IQueryable<Product> BuildAdminProductListQuery(
+        string? keyword,
+        string? category,
+        ProductStatus? status,
+        ProductSource? source)
+    {
+        var query = ApplyKeyword(_dbContext.Products.AsNoTracking(), keyword);
+        if (!string.IsNullOrWhiteSpace(category)
+            && !string.Equals(category.Trim(), "all", StringComparison.OrdinalIgnoreCase))
+        {
+            var normalizedCategory = category.Trim();
+            query = query.Where(x => x.CategoryName == normalizedCategory);
+        }
+
         if (status is not null)
         {
             query = query.Where(x => x.Status == status);
@@ -242,8 +286,17 @@ public sealed class ProductRepository : IProductRepository
             query = query.Where(x => x.Source == source);
         }
 
-        var products = await query
+        return query;
+    }
+
+    private static Task<ProductListPageRow[]> GetAdminProductPageRowsAsync(
+        IQueryable<Product> query,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
+        => query
             .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+            .ThenByDescending(x => x.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(x => new ProductListPageRow(
@@ -257,14 +310,14 @@ public sealed class ProductRepository : IProductRepository
                 x.AvailableStock,
                 x.ImageUrl,
                 x.CategoryName,
+                x.IsFeatured,
+                x.IsBestSeller,
+                x.PromotionBadge,
                 x.IsActiveFromZort,
                 x.IsVisibleOnLiff,
                 x.Source,
                 x.Status))
             .ToArrayAsync(cancellationToken);
-
-        return await HydrateListRowsAsync(products, cancellationToken);
-    }
 
     public Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => _dbContext.Products.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
@@ -442,6 +495,9 @@ public sealed class ProductRepository : IProductRepository
                 product.AvailableStock,
                 product.ImageUrl,
                 product.CategoryName,
+                product.IsFeatured,
+                product.IsBestSeller,
+                product.PromotionBadge,
                 product.IsActiveFromZort,
                 product.IsVisibleOnLiff,
                 product.Source,
@@ -460,8 +516,15 @@ public sealed class ProductRepository : IProductRepository
             return query;
         }
 
-        var normalized = keyword.Trim();
-        return query.Where(x => x.Name.Contains(normalized) || (x.BaseSku != null && x.BaseSku.Contains(normalized)) || (x.Barcode != null && x.Barcode.Contains(normalized)));
+        var escaped = keyword.Trim()
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
+        var pattern = $"%{escaped}%";
+        return query.Where(x =>
+            EF.Functions.ILike(x.Name, pattern, "\\")
+            || (x.BaseSku != null && EF.Functions.ILike(x.BaseSku, pattern, "\\"))
+            || (x.Barcode != null && EF.Functions.ILike(x.Barcode, pattern, "\\")));
     }
 
     private sealed record ProductListPageRow(
@@ -475,6 +538,9 @@ public sealed class ProductRepository : IProductRepository
         int AvailableStock,
         string? ImageUrl,
         string? CategoryName,
+        bool IsFeatured,
+        bool IsBestSeller,
+        string? PromotionBadge,
         bool IsActiveFromZort,
         bool IsVisibleOnLiff,
         ProductSource Source,
