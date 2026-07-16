@@ -1,9 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using System.Linq.Expressions;
 using PonPon.Modules.Catalog.Application.Abstractions;
+using PonPon.Modules.Catalog.Application.Features.FlashSales.GetFlashSales;
 using PonPon.Modules.Catalog.Domain.Categories;
 using PonPon.Modules.Catalog.Domain.Products;
 using PonPon.Modules.Catalog.Infrastructure.ExternalServices.Zort;
+using PonPon.Shared.Application.Abstractions;
 
 namespace PonPon.Modules.Catalog.Infrastructure.Persistence.Repositories;
 
@@ -11,11 +14,13 @@ public sealed class ProductRepository : IProductRepository
 {
     private readonly CatalogDbContext _dbContext;
     private readonly IMemoryCache _cache;
+    private readonly IDateTimeProvider _clock;
 
-    public ProductRepository(CatalogDbContext dbContext, IMemoryCache cache)
+    public ProductRepository(CatalogDbContext dbContext, IMemoryCache cache, IDateTimeProvider clock)
     {
         _dbContext = dbContext;
         _cache = cache;
+        _clock = clock;
     }
 
     public async Task<IReadOnlyCollection<Product>> GetCustomerProductsAsync(string? keyword, string? category, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -88,20 +93,12 @@ public sealed class ProductRepository : IProductRepository
     public async Task<IReadOnlyCollection<Product>> GetRelatedCustomerProductsAsync(Guid productId, string? categoryName, int limit, CancellationToken cancellationToken = default)
     {
         var take = Math.Clamp(limit, 1, 100);
-        var query = _dbContext.Products
-            .AsNoTracking()
+        var profile = await GetRelatedProductProfileAsync(productId, categoryName, cancellationToken);
+        var activeFlashSaleProductIds = await GetActiveFlashSaleRelatedProductIdsAsync(productId, cancellationToken);
+
+        return await BuildRelatedProductQuery(productId)
             .Include(x => x.Variants)
-            .Where(x => x.Id != productId
-                        && x.IsActiveFromZort
-                        && x.IsVisibleOnLiff
-                        && x.Status == ProductStatus.Active
-                        && x.AvailableStock > 0);
-
-        if (!string.IsNullOrWhiteSpace(categoryName))
-            query = query.Where(x => x.CategoryName == categoryName);
-
-        return await query
-            .OrderByDescending(x => x.IsFeatured)
+            .OrderByDescending(RelatedProductScoreExpression(profile, activeFlashSaleProductIds))
             .ThenByDescending(x => x.UpdatedAt ?? x.CreatedAt)
             .ThenBy(x => x.Name)
             .Take(take)
@@ -111,26 +108,19 @@ public sealed class ProductRepository : IProductRepository
     public async Task<IReadOnlyCollection<Application.Features.Products.GetProducts.ProductListItemReadModel>> GetRelatedCustomerProductListItemsAsync(Guid productId, string? categoryName, int limit, CancellationToken cancellationToken = default)
     {
         var take = Math.Clamp(limit, 1, 100);
-        var cacheKey = $"catalog:related-list:{productId:N}:{NormalizeCachePart(categoryName)}:{take}";
+        var localNow = GetFlashSalesHandler.GetBangkokNow(_clock.UtcNow);
+        var cacheKey = $"catalog:related-list:{productId:N}:{NormalizeCachePart(categoryName)}:{localNow:yyyyMMddHHmm}:{take}";
         if (_cache.TryGetValue(cacheKey, out IReadOnlyCollection<Application.Features.Products.GetProducts.ProductListItemReadModel>? cached)
             && cached is not null)
         {
             return cached;
         }
 
-        var query = _dbContext.Products
-            .AsNoTracking()
-            .Where(x => x.Id != productId
-                        && x.IsActiveFromZort
-                        && x.IsVisibleOnLiff
-                        && x.Status == ProductStatus.Active
-                        && x.AvailableStock > 0);
+        var profile = await GetRelatedProductProfileAsync(productId, categoryName, cancellationToken);
+        var activeFlashSaleProductIds = await GetActiveFlashSaleRelatedProductIdsAsync(productId, cancellationToken);
 
-        if (!string.IsNullOrWhiteSpace(categoryName))
-            query = query.Where(x => x.CategoryName == categoryName);
-
-        var products = await query
-            .OrderByDescending(x => x.IsFeatured)
+        var products = await BuildRelatedProductQuery(productId)
+            .OrderByDescending(RelatedProductScoreExpression(profile, activeFlashSaleProductIds))
             .ThenByDescending(x => x.UpdatedAt ?? x.CreatedAt)
             .ThenBy(x => x.Name)
             .Take(take)
@@ -154,6 +144,71 @@ public sealed class ProductRepository : IProductRepository
         var result = await HydrateListRowsAsync(products, cancellationToken);
         _cache.Set(cacheKey, result, RelatedListCacheOptions);
         return result;
+    }
+
+    private IQueryable<Product> BuildRelatedProductQuery(Guid productId)
+    {
+        return _dbContext.Products
+            .AsNoTracking()
+            .Where(x => x.Id != productId
+                        && x.IsActiveFromZort
+                        && x.IsVisibleOnLiff
+                        && x.Status == ProductStatus.Active
+                        && x.AvailableStock > 0);
+    }
+
+    private static Expression<Func<Product, int>> RelatedProductScoreExpression(
+        RelatedProductProfile profile,
+        IReadOnlySet<Guid> activeFlashSaleProductIds)
+    {
+        var hasSubCategory = !string.IsNullOrWhiteSpace(profile.SubCategoryName);
+        var hasCategory = !string.IsNullOrWhiteSpace(profile.CategoryName);
+        var flashSaleProductIds = activeFlashSaleProductIds.ToArray();
+
+        return product =>
+            (hasSubCategory && product.SubCategoryName == profile.SubCategoryName ? 60 : 0)
+            + (hasCategory && product.CategoryName == profile.CategoryName ? 40 : 0)
+            + (flashSaleProductIds.Contains(product.Id) ? 15 : 0)
+            + (product.IsBestSeller ? 15 : 0)
+            + (product.IsFeatured ? 10 : 0);
+    }
+
+    private async Task<RelatedProductProfile> GetRelatedProductProfileAsync(
+        Guid productId,
+        string? categoryName,
+        CancellationToken cancellationToken)
+    {
+        var product = await _dbContext.Products
+            .AsNoTracking()
+            .Where(x => x.Id == productId)
+            .Select(x => new RelatedProductProfile(
+                string.IsNullOrWhiteSpace(categoryName) ? x.CategoryName : categoryName,
+                x.SubCategoryName))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return product ?? new RelatedProductProfile(categoryName, null);
+    }
+
+    private async Task<IReadOnlySet<Guid>> GetActiveFlashSaleRelatedProductIdsAsync(
+        Guid productId,
+        CancellationToken cancellationToken)
+    {
+        var localNow = GetFlashSalesHandler.GetBangkokNow(_clock.UtcNow);
+        var today = DateOnly.FromDateTime(localNow);
+
+        var flashSales = await _dbContext.FlashSales
+            .AsNoTracking()
+            .Include(x => x.Products)
+            .Where(x => x.IsActive
+                        && x.StartDate <= today
+                        && today <= x.EndDate
+                        && x.Products.Any(p => p.ProductId == productId))
+            .ToArrayAsync(cancellationToken);
+
+        return flashSales
+            .Where(x => GetFlashSalesHandler.IsActiveNow(x, localNow))
+            .SelectMany(x => x.Products.Select(p => p.ProductId))
+            .ToHashSet();
     }
 
     public async Task<IReadOnlyCollection<Product>> GetAdminProductsAsync(string? keyword, ProductStatus? status, ProductSource? source, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -426,6 +481,8 @@ public sealed class ProductRepository : IProductRepository
         ProductStatus Status);
 
     private sealed record ProductListVariantRow(Guid ProductId, int Stock, int AvailableStock, string? ImageUrl);
+
+    private sealed record RelatedProductProfile(string? CategoryName, string? SubCategoryName);
 
     private static readonly MemoryCacheEntryOptions RelatedListCacheOptions = new()
     {
