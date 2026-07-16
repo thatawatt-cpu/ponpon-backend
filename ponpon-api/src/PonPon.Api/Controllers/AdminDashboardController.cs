@@ -147,38 +147,7 @@ public sealed class AdminDashboardController : ControllerBase
                 x.OrderDate))
             .ToArrayAsync(cancellationToken);
 
-        var shippingOrders = _orderingDbContext.Orders
-            .AsNoTracking()
-            .Where(x =>
-                (x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc) >= startUtc
-                && (x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc) < endUtc);
-
-        var shippingInTransit = await shippingOrders.CountAsync(
-            x => ShippingStatuses.Contains(x.Status),
-            cancellationToken);
-        var shippingDelivered = await shippingOrders.CountAsync(
-            x => DeliveredStatuses.Contains(x.Status),
-            cancellationToken);
-        var shippingReturned = await shippingOrders.CountAsync(
-            x => ReturnedStatuses.Contains(x.Status),
-            cancellationToken);
-        var latestShippingOrders = await shippingOrders
-            .Where(x =>
-                ShippingStatuses.Contains(x.Status)
-                || DeliveredStatuses.Contains(x.Status)
-                || ReturnedStatuses.Contains(x.Status))
-            .OrderByDescending(x => x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc)
-            .Take(5)
-            .Select(x => new DashboardShippingOrderResponse(
-                x.Id,
-                x.Number,
-                x.CustomerName,
-                x.ShippingChannel,
-                x.TrackingNo,
-                x.Status,
-                x.OrderDate,
-                x.ShippingDate))
-            .ToArrayAsync(cancellationToken);
+        var shipping = await GetShippingDashboardAsync(startUtc, endUtc, cancellationToken);
 
         var activeProductVariants =
             from product in _catalogDbContext.Products.AsNoTracking()
@@ -327,15 +296,39 @@ public sealed class AdminDashboardController : ControllerBase
                 GetCount(paymentCounts, "ExcessPayment"),
                 GetCount(paymentCounts, "Voided")),
             new DashboardShippingResponse(
-                shippingInTransit,
-                shippingDelivered,
-                shippingReturned,
-                latestShippingOrders),
+                shipping.InTransit,
+                shipping.Delivered,
+                shipping.Returned,
+                shipping.Latest),
             new DashboardSyncResponse(
                 syncStatuses.Count(x => x.Status == ProductSyncRunStatus.Succeeded),
                 syncStatuses.Count(x => x.Status is ProductSyncRunStatus.Pending or ProductSyncRunStatus.Running),
                 syncStatuses.Count(x => x.Status is ProductSyncRunStatus.Failed or ProductSyncRunStatus.CompletedWithErrors),
                 lastSuccessfulAt)));
+    }
+
+    [HttpGet("shipping")]
+    public async Task<ActionResult<DashboardShippingResponse>> GetShippingDashboard(
+        [FromQuery] DateOnly? date,
+        [FromQuery] string period = "day",
+        [FromQuery] string timeZone = DefaultTimeZone,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetTimeZone(timeZone, out var zone))
+        {
+            return BadRequest(new { message = $"Unknown time zone '{timeZone}'." });
+        }
+
+        var localDate = date ?? DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone));
+        if (!TryGetDashboardPeriod(period, out var dashboardPeriod) || dashboardPeriod == "year")
+        {
+            return BadRequest(new { message = $"Unknown shipping period '{period}'. Use day, week, or month." });
+        }
+
+        var (startDate, endDateExclusive) = GetLocalDateRange(localDate, dashboardPeriod);
+        var (startUtc, endUtc) = GetUtcRange(startDate, endDateExclusive, zone);
+
+        return Ok(await GetShippingDashboardAsync(startUtc, endUtc, cancellationToken));
     }
 
     [HttpGet("sync-runs")]
@@ -466,6 +459,51 @@ public sealed class AdminDashboardController : ControllerBase
 
     private static int GetCount(IReadOnlyDictionary<string, int> counts, string status)
         => counts.GetValueOrDefault(status);
+
+    private async Task<DashboardShippingResponse> GetShippingDashboardAsync(
+        DateTime startUtc,
+        DateTime endUtc,
+        CancellationToken cancellationToken)
+    {
+        var shippingOrders = _orderingDbContext.Orders
+            .AsNoTracking()
+            .Where(x =>
+                (x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc) >= startUtc
+                && (x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc) < endUtc);
+
+        var shippingInTransit = await shippingOrders.CountAsync(
+            x => ShippingStatuses.Contains(x.Status),
+            cancellationToken);
+        var shippingDelivered = await shippingOrders.CountAsync(
+            x => DeliveredStatuses.Contains(x.Status),
+            cancellationToken);
+        var shippingReturned = await shippingOrders.CountAsync(
+            x => ReturnedStatuses.Contains(x.Status),
+            cancellationToken);
+        var latestShippingOrders = await shippingOrders
+            .Where(x =>
+                ShippingStatuses.Contains(x.Status)
+                || DeliveredStatuses.Contains(x.Status)
+                || ReturnedStatuses.Contains(x.Status))
+            .OrderByDescending(x => x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc)
+            .Take(5)
+            .Select(x => new DashboardShippingOrderResponse(
+                x.Id,
+                x.Number,
+                x.CustomerName,
+                x.ShippingChannel,
+                x.TrackingNo,
+                x.Status,
+                x.OrderDate,
+                x.ShippingDate))
+            .ToArrayAsync(cancellationToken);
+
+        return new DashboardShippingResponse(
+            shippingInTransit,
+            shippingDelivered,
+            shippingReturned,
+            latestShippingOrders);
+    }
 
     private static bool IsOrderStatus(string status, string expected)
         => string.Equals(status, expected, StringComparison.OrdinalIgnoreCase);
