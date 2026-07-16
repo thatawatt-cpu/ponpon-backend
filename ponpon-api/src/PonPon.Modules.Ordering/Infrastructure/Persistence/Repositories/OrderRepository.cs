@@ -143,24 +143,45 @@ public sealed class OrderRepository : IOrderRepository
             query = query.Where(x => x.Status == status);
         }
 
-        var total = await query.CountAsync(cancellationToken);
+        var total = string.IsNullOrWhiteSpace(status)
+            ? statusCounts.Values.Sum()
+            : statusCounts.GetValueOrDefault(status);
         var orders = await ApplySort(query, sortBy, sortDirection)
+            .ThenByDescending(x => x.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .Select(x => new AdminOrderListItem(
+                x.Id,
+                x.ZortOrderId,
+                x.Number,
+                x.CustomerName,
+                x.CustomerPhone,
+                x.Status,
+                x.PaymentStatus,
+                x.Amount,
+                x.PaymentAmount,
+                x.ShippingChannel,
+                x.TrackingNo,
+                x.OrderDate,
+                x.SalesChannel,
+                x.LastSyncedAt,
+                x.OmiseRefundStatus,
+                null))
             .ToArrayAsync(cancellationToken);
+
+        if (orders.Length == 0)
+        {
+            return new AdminOrderListProjection(orders, total, statusCounts);
+        }
 
         var orderIds = orders.Select(x => x.Id).ToArray();
         var returnStatuses = await _dbContext.OrderReturnRequests
             .AsNoTracking()
             .Where(x => orderIds.Contains(x.OrderId))
-            .Select(x => new { x.OrderId, x.Status })
-            .GroupBy(x => x.OrderId)
-            .ToDictionaryAsync(x => x.Key, x => x.First().Status, cancellationToken);
+            .ToDictionaryAsync(x => x.OrderId, x => x.Status, cancellationToken);
 
         var items = orders
-            .Select(x => new AdminOrderListItem(
-                x,
-                returnStatuses.GetValueOrDefault(x.Id)))
+            .Select(x => x with { ReturnRequestStatus = returnStatuses.GetValueOrDefault(x.Id) })
             .ToArray();
 
         return new AdminOrderListProjection(items, total, statusCounts);

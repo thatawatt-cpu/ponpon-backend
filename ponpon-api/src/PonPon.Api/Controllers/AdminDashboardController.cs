@@ -1,7 +1,10 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
+using PonPon.Api.Options;
 using PonPon.Modules.Catalog.Domain.Products;
 using PonPon.Modules.Catalog.Domain.SyncRuns;
 using PonPon.Modules.Catalog.Infrastructure.Persistence;
@@ -39,13 +42,19 @@ public sealed class AdminDashboardController : ControllerBase
 
     private readonly OrderingDbContext _orderingDbContext;
     private readonly CatalogDbContext _catalogDbContext;
+    private readonly IMemoryCache _cache;
+    private readonly DashboardCacheOptions _cacheOptions;
 
     public AdminDashboardController(
         OrderingDbContext orderingDbContext,
-        CatalogDbContext catalogDbContext)
+        CatalogDbContext catalogDbContext,
+        IMemoryCache cache,
+        IOptions<DashboardCacheOptions> cacheOptions)
     {
         _orderingDbContext = orderingDbContext;
         _catalogDbContext = catalogDbContext;
+        _cache = cache;
+        _cacheOptions = cacheOptions.Value;
     }
 
     [HttpGet]
@@ -72,6 +81,13 @@ public sealed class AdminDashboardController : ControllerBase
         var (startUtc, endUtc) = GetUtcRange(startDate, endDateExclusive, zone);
         var (previousStartDate, previousEndDateExclusive) = GetPreviousLocalDateRange(startDate, dashboardPeriod);
         var (previousStartUtc, previousEndUtc) = GetUtcRange(previousStartDate, previousEndDateExclusive, zone);
+        var cacheKey = $"admin-dashboard:v1:{localDate:yyyy-MM-dd}:{dashboardPeriod}:{zone.Id}:{lowStockThreshold}";
+
+        if (TryGetCached(cacheKey, out AdminDashboardResponse? cachedDashboard))
+        {
+            Response.Headers["X-Dashboard-Cache"] = "HIT";
+            return Ok(cachedDashboard);
+        }
 
         var todayOrders = _orderingDbContext.Orders
             .AsNoTracking()
@@ -261,7 +277,7 @@ public sealed class AdminDashboardController : ControllerBase
             .Select(x => x.CompletedAtUtc)
             .Max();
 
-        return Ok(new AdminDashboardResponse(
+        var response = new AdminDashboardResponse(
             localDate,
             dashboardPeriod,
             startDate,
@@ -304,7 +320,11 @@ public sealed class AdminDashboardController : ControllerBase
                 syncStatuses.Count(x => x.Status == ProductSyncRunStatus.Succeeded),
                 syncStatuses.Count(x => x.Status is ProductSyncRunStatus.Pending or ProductSyncRunStatus.Running),
                 syncStatuses.Count(x => x.Status is ProductSyncRunStatus.Failed or ProductSyncRunStatus.CompletedWithErrors),
-                lastSuccessfulAt)));
+                lastSuccessfulAt));
+
+        SetCached(cacheKey, response, GetCacheDuration(dashboardPeriod));
+        Response.Headers["X-Dashboard-Cache"] = "MISS";
+        return Ok(response);
     }
 
     [HttpGet("shipping")]
@@ -327,8 +347,18 @@ public sealed class AdminDashboardController : ControllerBase
 
         var (startDate, endDateExclusive) = GetLocalDateRange(localDate, dashboardPeriod);
         var (startUtc, endUtc) = GetUtcRange(startDate, endDateExclusive, zone);
+        var cacheKey = $"admin-dashboard-shipping:v1:{localDate:yyyy-MM-dd}:{dashboardPeriod}:{zone.Id}";
 
-        return Ok(await GetShippingDashboardAsync(startUtc, endUtc, cancellationToken));
+        if (TryGetCached(cacheKey, out DashboardShippingResponse? cachedShipping))
+        {
+            Response.Headers["X-Dashboard-Cache"] = "HIT";
+            return Ok(cachedShipping);
+        }
+
+        var response = await GetShippingDashboardAsync(startUtc, endUtc, cancellationToken);
+        SetCached(cacheKey, response, TimeSpan.FromSeconds(_cacheOptions.ShippingSeconds));
+        Response.Headers["X-Dashboard-Cache"] = "MISS";
+        return Ok(response);
     }
 
     [HttpGet("sync-runs")]
@@ -471,15 +501,19 @@ public sealed class AdminDashboardController : ControllerBase
                 (x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc) >= startUtc
                 && (x.ShippingDate ?? x.OrderDate ?? x.ZortUpdatedAt ?? x.ZortCreatedAt ?? x.CreatedAtUtc) < endUtc);
 
-        var shippingInTransit = await shippingOrders.CountAsync(
-            x => ShippingStatuses.Contains(x.Status),
-            cancellationToken);
-        var shippingDelivered = await shippingOrders.CountAsync(
-            x => DeliveredStatuses.Contains(x.Status),
-            cancellationToken);
-        var shippingReturned = await shippingOrders.CountAsync(
-            x => ReturnedStatuses.Contains(x.Status),
-            cancellationToken);
+        var relevantStatuses = ShippingStatuses
+            .Concat(DeliveredStatuses)
+            .Concat(ReturnedStatuses)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var statusCounts = await shippingOrders
+            .Where(x => relevantStatuses.Contains(x.Status))
+            .GroupBy(x => x.Status)
+            .Select(x => new { Status = x.Key, Count = x.Count() })
+            .ToDictionaryAsync(x => x.Status, x => x.Count, StringComparer.Ordinal, cancellationToken);
+        var shippingInTransit = ShippingStatuses.Sum(x => statusCounts.GetValueOrDefault(x));
+        var shippingDelivered = DeliveredStatuses.Sum(x => statusCounts.GetValueOrDefault(x));
+        var shippingReturned = ReturnedStatuses.Sum(x => statusCounts.GetValueOrDefault(x));
         var latestShippingOrders = await shippingOrders
             .Where(x =>
                 ShippingStatuses.Contains(x.Status)
@@ -507,6 +541,34 @@ public sealed class AdminDashboardController : ControllerBase
 
     private static bool IsOrderStatus(string status, string expected)
         => string.Equals(status, expected, StringComparison.OrdinalIgnoreCase);
+
+    private bool TryGetCached<T>(string key, out T? value)
+    {
+        if (!_cacheOptions.Enabled)
+        {
+            value = default;
+            return false;
+        }
+
+        return _cache.TryGetValue(key, out value);
+    }
+
+    private void SetCached<T>(string key, T value, TimeSpan duration)
+    {
+        if (_cacheOptions.Enabled && duration > TimeSpan.Zero)
+        {
+            _cache.Set(key, value, duration);
+        }
+    }
+
+    private TimeSpan GetCacheDuration(string period)
+        => TimeSpan.FromSeconds(period switch
+        {
+            "week" => _cacheOptions.WeekSeconds,
+            "month" => _cacheOptions.MonthSeconds,
+            "year" => _cacheOptions.YearSeconds,
+            _ => _cacheOptions.DaySeconds
+        });
 
     private static bool IsPaymentStatus(string status, string expected)
         => string.Equals(status, expected, StringComparison.OrdinalIgnoreCase);

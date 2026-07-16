@@ -2,6 +2,7 @@ using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PonPon.Api.Infrastructure;
+using PonPon.Api.Options;
 using PonPon.Api.Realtime;
 using PonPon.Api.Services;
 using PonPon.Shared.Application.Abstractions;
@@ -16,6 +17,8 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         services.AddHttpContextAccessor();
+        services.AddMemoryCache();
+        services.Configure<DashboardCacheOptions>(configuration.GetSection(DashboardCacheOptions.SectionName));
         services.AddPonPonCors(configuration);
         services.AddScoped<ICurrentUser, CurrentUser>();
         services.AddSingleton<IEventBus, InMemoryEventBus>();

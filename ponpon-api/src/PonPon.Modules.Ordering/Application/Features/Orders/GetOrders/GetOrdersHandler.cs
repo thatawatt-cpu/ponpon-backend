@@ -43,24 +43,24 @@ public sealed class GetOrdersHandler
         var lastSuccessfulSyncAt = await _syncRuns.GetLastSuccessfulCompletedAtAsync(cancellationToken);
 
         var items = orders.Items.Select(item => new OrderListItemResponse(
-            item.Order.Id,
-            item.Order.ZortOrderId,
-            item.Order.Number,
-            item.Order.CustomerName,
-            item.Order.CustomerPhone,
-            item.Order.Status,
-            item.Order.PaymentStatus,
-            item.Order.Amount,
-            item.Order.PaymentAmount,
-            item.Order.ShippingChannel,
-            item.Order.TrackingNo,
-            item.Order.OrderDate,
-            item.Order.SalesChannel,
-            item.Order.LastSyncedAt,
+            item.Id,
+            item.ZortOrderId,
+            item.Number,
+            item.CustomerName,
+            item.CustomerPhone,
+            item.Status,
+            item.PaymentStatus,
+            item.Amount,
+            item.PaymentAmount,
+            item.ShippingChannel,
+            item.TrackingNo,
+            item.OrderDate,
+            item.SalesChannel,
+            item.LastSyncedAt,
             item.ReturnRequestStatus,
-            item.Order.OmiseRefundStatus,
-            GetAllowedActions(item.Order),
-            CanCancel(item.Order))).ToArray();
+            item.OmiseRefundStatus,
+            GetAllowedActions(item.Status, item.OmiseRefundStatus),
+            CanCancel(item.Status))).ToArray();
 
         return new OrderListResponse(
             items,
@@ -179,15 +179,15 @@ public sealed class GetOrdersHandler
         throw new BadRequestException("Payment status must be a valid ZORT payment status.");
     }
 
-    private static IReadOnlyCollection<string> GetAllowedActions(Order order)
+    private static IReadOnlyCollection<string> GetAllowedActions(string status, string? refundStatus)
     {
         var actions = new List<string>();
-        if (CanCancel(order))
+        if (CanCancel(status))
         {
             actions.Add("cancel");
         }
 
-        if (string.Equals(order.OmiseRefundStatus, OrderRefundStatus.ManualRefundPending, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(refundStatus, OrderRefundStatus.ManualRefundPending, StringComparison.OrdinalIgnoreCase))
         {
             actions.Add("approveManualRefund");
         }
@@ -195,9 +195,9 @@ public sealed class GetOrdersHandler
         return actions;
     }
 
-    private static bool CanCancel(Order order)
-        => !string.Equals(order.Status, "Voided", StringComparison.OrdinalIgnoreCase)
-           && !string.Equals(order.Status, ((int)ZortOrderStatus.Voided).ToString(), StringComparison.OrdinalIgnoreCase);
+    private static bool CanCancel(string status)
+        => !string.Equals(status, "Voided", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(status, ((int)ZortOrderStatus.Voided).ToString(), StringComparison.OrdinalIgnoreCase);
 
     private static string? NormalizeReturnRequestStatus(string? status)
     {

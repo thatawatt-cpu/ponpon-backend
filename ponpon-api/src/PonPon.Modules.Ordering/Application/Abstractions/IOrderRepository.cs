@@ -18,7 +18,21 @@ public sealed record CustomerOrderItemPreview(
     Guid? ReviewId);
 
 public sealed record AdminOrderListItem(
-    Order Order,
+    Guid Id,
+    long ZortOrderId,
+    string Number,
+    string? CustomerName,
+    string? CustomerPhone,
+    string Status,
+    string PaymentStatus,
+    decimal Amount,
+    decimal PaymentAmount,
+    string? ShippingChannel,
+    string? TrackingNo,
+    DateTime? OrderDate,
+    string SalesChannel,
+    DateTime LastSyncedAt,
+    string? OmiseRefundStatus,
     string? ReturnRequestStatus);
 
 public sealed record AdminOrderListProjection(
