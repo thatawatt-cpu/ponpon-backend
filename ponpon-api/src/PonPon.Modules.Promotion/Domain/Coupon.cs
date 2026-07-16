@@ -134,6 +134,13 @@ public sealed class CouponScope
             CategoryName = string.IsNullOrWhiteSpace(input.CategoryName) ? null : input.CategoryName.Trim()
         };
     }
+
+    public static CouponScope Create(Guid couponId, CouponScopeInput input)
+    {
+        var scope = Create(input);
+        scope.CouponId = couponId;
+        return scope;
+    }
 }
 
 public sealed record CouponScopeInput(
@@ -165,6 +172,13 @@ public sealed class CouponCustomerScope
             CustomerId = input.CustomerId
         };
     }
+
+    public static CouponCustomerScope Create(Guid couponId, CouponCustomerScopeInput input)
+    {
+        var scope = Create(input);
+        scope.CouponId = couponId;
+        return scope;
+    }
 }
 
 public sealed record CouponCustomerScopeInput(
@@ -190,6 +204,13 @@ public sealed class CouponCondition
         Type = input.Type.Trim().ToLowerInvariant(),
         Value = input.Value.Trim().ToLowerInvariant()
     };
+
+    public static CouponCondition Create(Guid couponId, CouponConditionInput input)
+    {
+        var condition = Create(input);
+        condition.CouponId = couponId;
+        return condition;
+    }
 }
 
 public sealed record CouponConditionInput(string Type, string Value);

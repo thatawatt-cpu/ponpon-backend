@@ -197,39 +197,36 @@ public sealed class CouponService : ICouponService
             .Include(x => x.Conditions)
             .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken)
             ?? throw new NotFoundException("Coupon was not found.");
-        var coupon = await _db.Coupons
-            .IgnoreAutoIncludes()
-            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken)
-            ?? throw new NotFoundException("Coupon was not found.");
         var code = input.Code.Trim().ToUpperInvariant();
         if (await _db.Coupons.AnyAsync(x => x.Id != id && x.Code == code, cancellationToken))
             throw new BadRequestException("Coupon code already exists.");
 
         var beforeJson = ToAuditJson(before);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            await DeleteCouponRulesAsync(id, cancellationToken);
-            coupon.Update(input, DateTime.UtcNow);
-            _db.CouponAuditLogs.Add(CreateAuditLog(
-                coupon.Id,
-                null,
-                "updated",
-                beforeJson,
-                ToAuditJson(coupon),
-                DateTime.UtcNow));
-            await _db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            if (!await _db.Coupons
-                .AsNoTracking()
-                .AnyAsync(x => x.Id == id && !x.IsDeleted, cancellationToken))
-                throw new NotFoundException("Coupon was not found.");
+        var now = DateTime.UtcNow;
+        var affectedRows = await UpdateCouponAsync(id, input, now, cancellationToken);
+        if (affectedRows == 0)
+            throw new NotFoundException("Coupon was not found.");
 
-            throw;
-        }
+        await DeleteCouponRulesAsync(id, cancellationToken);
+        await AddCouponRulesAsync(id, input, cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var after = await _db.Coupons
+            .AsNoTracking()
+            .Include(x => x.Scopes)
+            .Include(x => x.CustomerScopes)
+            .Include(x => x.Conditions)
+            .SingleAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
+        _db.CouponAuditLogs.Add(CreateAuditLog(
+            id,
+            null,
+            "updated",
+            beforeJson,
+            ToAuditJson(after),
+            now));
+        await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
@@ -651,5 +648,55 @@ public sealed class CouponService : ICouponService
         await _db.Set<CouponCondition>()
             .Where(x => x.CouponId == couponId)
             .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private Task<int> UpdateCouponAsync(
+        Guid couponId,
+        CouponInput input,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var code = input.Code.Trim().ToUpperInvariant();
+        var name = string.IsNullOrWhiteSpace(input.Name) ? code : input.Name.Trim();
+        var description = string.IsNullOrWhiteSpace(input.Description) ? null : input.Description.Trim();
+        var type = input.Type.Trim().ToLowerInvariant();
+
+        return _db.Coupons
+            .Where(x => x.Id == couponId && !x.IsDeleted)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.CampaignId, input.CampaignId)
+                .SetProperty(x => x.Code, code)
+                .SetProperty(x => x.Name, name)
+                .SetProperty(x => x.Description, description)
+                .SetProperty(x => x.Type, type)
+                .SetProperty(x => x.Value, input.Value)
+                .SetProperty(x => x.MinimumSubtotal, input.MinimumSubtotal)
+                .SetProperty(x => x.MaximumDiscount, input.MaximumDiscount)
+                .SetProperty(x => x.StartsAtUtc, input.StartsAtUtc)
+                .SetProperty(x => x.EndsAtUtc, input.EndsAtUtc)
+                .SetProperty(x => x.CanCombineWithFlashSale, input.CanCombineWithFlashSale)
+                .SetProperty(x => x.CanStackWithPromotions, input.CanStackWithPromotions)
+                .SetProperty(x => x.CanStackWithCoupons, input.CanStackWithCoupons)
+                .SetProperty(x => x.MaximumTotalUses, input.MaximumTotalUses)
+                .SetProperty(x => x.MaximumUsesPerCustomer, input.MaximumUsesPerCustomer)
+                .SetProperty(x => x.IsActive, input.IsActive)
+                .SetProperty(x => x.UpdatedAtUtc, now),
+                cancellationToken);
+    }
+
+    private async Task AddCouponRulesAsync(
+        Guid couponId,
+        CouponInput input,
+        CancellationToken cancellationToken)
+    {
+        await _db.Set<CouponScope>().AddRangeAsync(
+            input.Scopes.Select(x => CouponScope.Create(couponId, x)),
+            cancellationToken);
+        await _db.Set<CouponCustomerScope>().AddRangeAsync(
+            input.CustomerScopes.Select(x => CouponCustomerScope.Create(couponId, x)),
+            cancellationToken);
+        await _db.Set<CouponCondition>().AddRangeAsync(
+            input.Conditions.Select(x => CouponCondition.Create(couponId, x)),
+            cancellationToken);
     }
 }
