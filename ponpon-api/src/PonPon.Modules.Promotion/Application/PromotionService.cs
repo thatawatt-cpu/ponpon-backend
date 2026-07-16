@@ -54,12 +54,24 @@ public sealed class PromotionService(PromotionDbContext db) : IPromotionService
     public Task<PromotionEntity?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         => db.Promotions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
-    public async Task<IReadOnlyCollection<PromotionUsage>> GetUsagesAsync(
+    public async Task<IReadOnlyCollection<PromotionUsageListItem>> GetUsagesAsync(
         Guid promotionId,
         CancellationToken cancellationToken = default)
-        => await db.PromotionUsages.AsNoTracking()
-            .Where(x => x.PromotionId == promotionId)
-            .OrderByDescending(x => x.CreatedAtUtc)
+        => await (
+            from usage in db.PromotionUsages.AsNoTracking()
+            join promotion in db.Promotions.AsNoTracking()
+                on usage.PromotionId equals promotion.Id
+            where usage.PromotionId == promotionId
+            orderby usage.CreatedAtUtc descending
+            select new PromotionUsageListItem(
+                usage.Id,
+                usage.OrderId,
+                usage.CustomerId,
+                usage.DiscountAmount,
+                usage.IsReleased,
+                usage.CreatedAtUtc,
+                usage.ReleasedAtUtc,
+                promotion.Name))
             .ToArrayAsync(cancellationToken);
 
     public async Task<Guid> CreateAsync(

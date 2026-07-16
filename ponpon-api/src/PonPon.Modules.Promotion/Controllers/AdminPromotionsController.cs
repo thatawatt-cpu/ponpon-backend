@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PonPon.Modules.Promotion.Application;
 using PonPon.Modules.Promotion.Domain;
+using PonPon.Shared.Application.Abstractions;
 using PromotionEntity = PonPon.Modules.Promotion.Domain.Promotion;
 
 namespace PonPon.Modules.Promotion.Controllers;
@@ -32,17 +33,32 @@ public sealed class AdminPromotionsController : ControllerBase
     public async Task<ActionResult<IReadOnlyCollection<PromotionUsageResponse>>> GetUsages(
         Guid id,
         [FromServices] IPromotionService promotions,
+        [FromServices] IOrderUsageReadService orders,
         CancellationToken cancellationToken)
     {
         var usages = await promotions.GetUsagesAsync(id, cancellationToken);
-        return Ok(usages.Select(x => new PromotionUsageResponse(
-            x.Id,
-            x.OrderId,
-            x.CustomerId,
-            x.DiscountAmount,
-            x.IsReleased,
-            x.CreatedAtUtc,
-            x.ReleasedAtUtc)));
+        var orderDetails = await orders.GetByIdsAsync(
+            usages.Select(x => x.OrderId).ToArray(),
+            cancellationToken);
+
+        return Ok(usages.Select(x =>
+        {
+            var order = orderDetails.GetValueOrDefault(x.OrderId);
+            return new PromotionUsageResponse(
+                x.Id,
+                x.OrderId,
+                x.CustomerId,
+                x.DiscountAmount,
+                x.IsReleased,
+                x.CreatedAtUtc,
+                x.ReleasedAtUtc,
+                order?.OrderNumber ?? string.Empty,
+                order?.CustomerName ?? string.Empty,
+                order?.CustomerPhone,
+                order?.OrderTotal,
+                x.PromotionName,
+                x.CreatedAtUtc);
+        }));
     }
 
     [HttpPost]
@@ -163,7 +179,13 @@ public sealed record PromotionUsageResponse(
     decimal DiscountAmount,
     bool IsReleased,
     DateTime CreatedAtUtc,
-    DateTime? ReleasedAtUtc);
+    DateTime? ReleasedAtUtc,
+    string OrderNumber,
+    string CustomerName,
+    string? CustomerPhone,
+    decimal? OrderTotal,
+    string PromotionName,
+    DateTime UsedAt);
 
 public sealed record PromotionResponse(
     Guid Id,

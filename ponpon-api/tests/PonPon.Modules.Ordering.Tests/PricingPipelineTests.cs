@@ -855,8 +855,8 @@ public sealed class PricingPipelineTests
                 _coupons.Where(x => x.CampaignId == campaignId).ToArray());
         public Task<Coupon?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
             => Task.FromResult<Coupon?>(_coupons.FirstOrDefault(x => x.Id == id));
-        public Task<IReadOnlyCollection<CouponUsage>> GetUsagesAsync(Guid couponId, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyCollection<CouponUsage>>([]);
+        public Task<IReadOnlyCollection<CouponUsageListItem>> GetUsagesAsync(Guid couponId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyCollection<CouponUsageListItem>>([]);
         public Task<IReadOnlyCollection<CouponAuditLog>> GetAuditLogsAsync(Guid couponId, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyCollection<CouponAuditLog>>([]);
         public Task<int> GetActiveCustomerUsageCountAsync(Guid couponId, Guid customerId, CancellationToken cancellationToken = default)
@@ -901,8 +901,8 @@ public sealed class PricingPipelineTests
         public Task<PromotionEntity?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
             => Task.FromResult<PromotionEntity?>(_promotions.FirstOrDefault(x => x.Id == id));
 
-        public Task<IReadOnlyCollection<PromotionUsage>> GetUsagesAsync(Guid promotionId, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyCollection<PromotionUsage>>([]);
+        public Task<IReadOnlyCollection<PromotionUsageListItem>> GetUsagesAsync(Guid promotionId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyCollection<PromotionUsageListItem>>([]);
 
         public Task<Guid> CreateAsync(PromotionInput input, CancellationToken cancellationToken = default)
             => Task.FromResult(Guid.NewGuid());

@@ -8,7 +8,7 @@ public interface ICouponService
     Task<IReadOnlyCollection<Coupon>> GetAllAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<Coupon>> GetByCampaignAsync(Guid campaignId, CancellationToken cancellationToken = default);
     Task<Coupon?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<IReadOnlyCollection<CouponUsage>> GetUsagesAsync(Guid couponId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<CouponUsageListItem>> GetUsagesAsync(Guid couponId, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<CouponAuditLog>> GetAuditLogsAsync(Guid couponId, CancellationToken cancellationToken = default);
     Task<int> GetActiveCustomerUsageCountAsync(Guid couponId, Guid customerId, CancellationToken cancellationToken = default);
     Task<Guid> CreateAsync(CouponInput input, CancellationToken cancellationToken = default);
@@ -23,6 +23,17 @@ public interface ICouponService
         decimal discountAmount = 0);
     Task ReleaseByOrderAsync(Guid orderId, CancellationToken cancellationToken = default);
 }
+
+public sealed record CouponUsageListItem(
+    Guid Id,
+    Guid OrderId,
+    Guid CustomerId,
+    decimal DiscountAmount,
+    bool IsReleased,
+    DateTime CreatedAtUtc,
+    DateTime? ReleasedAtUtc,
+    string CouponCode,
+    string CouponName);
 
 public sealed record CouponBulkGenerateInput(
     string Prefix,

@@ -67,12 +67,33 @@ public sealed class AdminCouponsController : ControllerBase
     public async Task<ActionResult<IReadOnlyCollection<CouponUsageResponse>>> GetUsages(
         Guid id,
         [FromServices] ICouponService coupons,
+        [FromServices] IOrderUsageReadService orders,
         CancellationToken cancellationToken)
     {
         var usages = await coupons.GetUsagesAsync(id, cancellationToken);
-        return Ok(usages.Select(x => new CouponUsageResponse(
-            x.Id, x.OrderId, x.CustomerId, x.DiscountAmount,
-            x.IsReleased, x.CreatedAtUtc, x.ReleasedAtUtc)));
+        var orderDetails = await orders.GetByIdsAsync(
+            usages.Select(x => x.OrderId).ToArray(),
+            cancellationToken);
+
+        return Ok(usages.Select(x =>
+        {
+            var order = orderDetails.GetValueOrDefault(x.OrderId);
+            return new CouponUsageResponse(
+                x.Id,
+                x.OrderId,
+                x.CustomerId,
+                x.DiscountAmount,
+                x.IsReleased,
+                x.CreatedAtUtc,
+                x.ReleasedAtUtc,
+                order?.OrderNumber ?? x.OrderId.ToString(),
+                order?.CustomerName,
+                order?.CustomerPhone,
+                order?.OrderTotal,
+                x.CouponCode,
+                x.CouponName,
+                x.CreatedAtUtc);
+        }));
     }
 
     [HttpGet("{id:guid}/audit-logs")]
@@ -153,7 +174,14 @@ public sealed record CouponUsageResponse(
     decimal DiscountAmount,
     bool IsReleased,
     DateTime CreatedAtUtc,
-    DateTime? ReleasedAtUtc);
+    DateTime? ReleasedAtUtc,
+    string OrderNumber,
+    string? CustomerName,
+    string? CustomerPhone,
+    decimal? OrderTotal,
+    string CouponCode,
+    string CouponName,
+    DateTime UsedAt);
 
 public sealed record CouponAuditLogResponse(
     Guid Id,

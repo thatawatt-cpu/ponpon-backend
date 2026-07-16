@@ -47,6 +47,7 @@ public static class OrderingModule
         services.AddScoped<IOrderReturnRequestRepository, OrderReturnRequestRepository>();
         services.AddScoped<IOrderingUnitOfWork, OrderingUnitOfWork>();
         services.AddScoped<IProductSalesReadService, ProductSalesReadService>();
+        services.AddScoped<IOrderUsageReadService, OrderUsageReadService>();
         services.AddScoped<IOrderShippingStatusUpdater, OrderShippingStatusUpdater>();
         services.AddScoped<OrderStockReservationService>();
         services.AddScoped<PricingPipeline>();

@@ -8,7 +8,7 @@ public interface IPromotionService
     Task<IReadOnlyCollection<PromotionEntity>> GetAllAsync(Guid? campaignId = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<PromotionEntity>> GetActiveAsync(DateTime nowUtc, CancellationToken cancellationToken = default);
     Task<PromotionEntity?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<IReadOnlyCollection<PromotionUsage>> GetUsagesAsync(Guid promotionId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<PromotionUsageListItem>> GetUsagesAsync(Guid promotionId, CancellationToken cancellationToken = default);
     Task<Guid> CreateAsync(PromotionInput input, CancellationToken cancellationToken = default);
     Task UpdateAsync(Guid id, PromotionInput input, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
@@ -16,3 +16,13 @@ public interface IPromotionService
     Task<bool> TryReserveAsync(Guid promotionId, Guid orderId, Guid customerId, CancellationToken cancellationToken = default, decimal discountAmount = 0);
     Task ReleaseByOrderAsync(Guid orderId, CancellationToken cancellationToken = default);
 }
+
+public sealed record PromotionUsageListItem(
+    Guid Id,
+    Guid OrderId,
+    Guid CustomerId,
+    decimal DiscountAmount,
+    bool IsReleased,
+    DateTime CreatedAtUtc,
+    DateTime? ReleasedAtUtc,
+    string PromotionName);

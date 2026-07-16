@@ -78,11 +78,24 @@ public sealed class CouponService : ICouponService
             .Include(x => x.Conditions)
             .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted, cancellationToken);
 
-    public async Task<IReadOnlyCollection<CouponUsage>> GetUsagesAsync(
+    public async Task<IReadOnlyCollection<CouponUsageListItem>> GetUsagesAsync(
         Guid couponId, CancellationToken cancellationToken = default)
-        => await _db.CouponUsages.AsNoTracking()
-            .Where(x => x.CouponId == couponId)
-            .OrderByDescending(x => x.CreatedAtUtc)
+        => await (
+            from usage in _db.CouponUsages.AsNoTracking()
+            join coupon in _db.Coupons.AsNoTracking()
+                on usage.CouponId equals coupon.Id
+            where usage.CouponId == couponId
+            orderby usage.CreatedAtUtc descending
+            select new CouponUsageListItem(
+                usage.Id,
+                usage.OrderId,
+                usage.CustomerId,
+                usage.DiscountAmount,
+                usage.IsReleased,
+                usage.CreatedAtUtc,
+                usage.ReleasedAtUtc,
+                coupon.Code,
+                coupon.Name))
             .ToArrayAsync(cancellationToken);
 
     public async Task<IReadOnlyCollection<CouponAuditLog>> GetAuditLogsAsync(
