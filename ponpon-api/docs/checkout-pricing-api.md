@@ -1,6 +1,6 @@
 # Checkout pricing integration
 
-Call `POST /api/orders/pricing-preview` whenever cart items, shipping address/channel, or coupon code changes. Use the returned amounts as the checkout display only; `POST /api/orders` recalculates and atomically reserves coupon, flash-sale quota, and stock.
+Call `POST /api/orders/pricing-preview` whenever cart items, shipping address/channel, or coupon code changes. Use the returned amounts as the checkout display only; `POST /api/orders` validates the quote and atomically reserves coupon, flash-sale quota, and stock.
 
 ```json
 {
@@ -15,6 +15,28 @@ Call `POST /api/orders/pricing-preview` whenever cart items, shipping address/ch
   ]
 }
 ```
+
+Partial cart quote before the customer has a shipping address:
+
+```json
+{
+  "customerEmail": null,
+  "shippingName": null,
+  "shippingPhone": null,
+  "shippingAddress": null,
+  "shippingChannel": "standard",
+  "couponCode": null,
+  "items": [
+    { "productId": "00000000-0000-0000-0000-000000000000", "variantId": null, "quantity": 1 }
+  ]
+}
+```
+
+When shipping details are missing, the response has `isFinal: false`,
+`shippingFinalized: false`, and `calculationStatus: "partial"`. The response can be
+shown in cart/checkout as an estimated item total, but it cannot be used to create an
+order until the customer adds a valid shipping name, phone, address, and channel and a
+new final quote is created.
 
 Render `lines`, `itemSubtotal`, `shippingAmount`, `couponDiscountAmount`, `vatAmount`, `grandTotal`, and `adjustments`. Treat HTTP 400 as an invalid coupon, unavailable quota/stock, unsupported shipping address, or invalid request and show the API error message.
 

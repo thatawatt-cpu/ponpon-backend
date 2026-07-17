@@ -25,6 +25,16 @@ public sealed class ProductDetailPriceResolver
         return prices[product.Id];
     }
 
+    public async Task<ProductDetailPrice> ResolveAsync(
+        GetProductById.ProductDetailReadModel product,
+        CancellationToken cancellationToken = default)
+    {
+        var prices = await ResolveAsync(
+            [new ProductPriceInput(product.Id, product.SellPrice, product.OriginalPrice)],
+            cancellationToken);
+        return prices[product.Id];
+    }
+
     public async Task<IReadOnlyDictionary<Guid, ProductDetailPrice>> ResolveAsync(
         IReadOnlyCollection<Product> products,
         CancellationToken cancellationToken = default)

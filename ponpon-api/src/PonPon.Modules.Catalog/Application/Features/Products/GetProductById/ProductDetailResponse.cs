@@ -72,3 +72,71 @@ public sealed record ProductVariantResponse(
     bool IsActiveFromZort,
     ProductStatus Status,
     IReadOnlyCollection<ProductVariantOptionResponse> Options);
+
+public sealed record ProductDetailReadModel(
+    Guid Id,
+    long? ZortProductId,
+    int ProductType,
+    string Name,
+    string? Description,
+    string? BaseSku,
+    string? Barcode,
+    decimal SellPrice,
+    int SellVatStatus,
+    decimal? PurchasePrice,
+    int PurchaseVatStatus,
+    int Stock,
+    int AvailableStock,
+    string? UnitText,
+    string? ImageUrl,
+    decimal? Weight,
+    decimal? Height,
+    decimal? Length,
+    decimal? Width,
+    long? ZortCategoryId,
+    string? CategoryName,
+    long? ZortSubCategoryId,
+    string? SubCategoryName,
+    long? ZortVariationId,
+    bool IsActiveFromZort,
+    bool IsVisibleOnLiff,
+    bool IsFeatured,
+    bool IsBestSeller,
+    bool IsOnHomepage,
+    string? Slug,
+    decimal? OriginalPrice,
+    string? PromotionBadge,
+    string? Highlights,
+    string? RichDescription,
+    ProductSource Source,
+    ProductStatus Status,
+    DateTime? LastSyncedAt,
+    DateTime? MissingFromZortAt,
+    IReadOnlyCollection<ProductImageReadModel> Images,
+    IReadOnlyCollection<ProductVariantReadModel> Variants)
+{
+    public bool IsVisibleToCustomer =>
+        IsActiveFromZort && IsVisibleOnLiff && Status == ProductStatus.Active && AvailableStock > 0;
+}
+
+public sealed record ProductImageReadModel(
+    Guid Id,
+    string Url,
+    int SortOrder,
+    bool IsPrimary);
+
+public sealed record ProductVariantReadModel(
+    Guid Id,
+    long? ZortProductId,
+    long? ZortVariationId,
+    string Sku,
+    string? VariantCode,
+    string? Barcode,
+    decimal SellPrice,
+    int Stock,
+    int AvailableStock,
+    string? UnitText,
+    string? ImageUrl,
+    bool IsActiveFromZort,
+    ProductStatus Status,
+    string? OptionsJson);

@@ -18,6 +18,7 @@ public interface IProductRepository
     Task<Product?> GetByIdWithVariantsAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<Product>> GetByIdsWithVariantsAsync(IReadOnlySet<Guid> ids, CancellationToken cancellationToken = default);
     Task<Product?> GetByIdWithVariantsAndImagesAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Features.Products.GetProductById.ProductDetailReadModel?> GetDetailBySlugAsync(string slug, CancellationToken cancellationToken = default);
     Task<Product?> GetBySlugWithVariantsAndImagesAsync(string slug, CancellationToken cancellationToken = default);
     Task<Product?> GetByIdWithImagesAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Product?> GetByZortProductIdAsync(long zortProductId, CancellationToken cancellationToken = default);

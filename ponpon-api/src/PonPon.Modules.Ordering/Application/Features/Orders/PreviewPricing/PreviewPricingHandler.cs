@@ -66,9 +66,9 @@ public sealed class PreviewPricingHandler(
 
 public sealed record PreviewPricingRequest(
     string? CustomerEmail,
-    string ShippingName,
-    string ShippingPhone,
-    string ShippingAddress,
+    string? ShippingName,
+    string? ShippingPhone,
+    string? ShippingAddress,
     string? ShippingChannel,
     string? CouponCode,
     IReadOnlyCollection<PreviewPricingItemRequest> Items,

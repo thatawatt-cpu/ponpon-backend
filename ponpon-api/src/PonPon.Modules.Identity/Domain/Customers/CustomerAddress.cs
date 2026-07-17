@@ -1,3 +1,4 @@
+using System.Text;
 using PonPon.Shared.Domain;
 
 namespace PonPon.Modules.Identity.Domain.Customers;
@@ -152,6 +153,18 @@ public sealed class CustomerAddress : Entity, IAuditableEntity
             Postcode
         };
 
-        return string.Join(" ", addressParts.Where(part => !string.IsNullOrWhiteSpace(part)));
+        var builder = new StringBuilder();
+        foreach (var part in addressParts)
+        {
+            if (string.IsNullOrWhiteSpace(part))
+                continue;
+
+            if (builder.Length > 0)
+                builder.Append(' ');
+
+            builder.Append(part.Trim());
+        }
+
+        return builder.ToString();
     }
 }

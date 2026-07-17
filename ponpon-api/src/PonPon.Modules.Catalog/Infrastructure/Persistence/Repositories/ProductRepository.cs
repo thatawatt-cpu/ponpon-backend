@@ -357,6 +357,132 @@ public sealed class ProductRepository : IProductRepository
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
+    public async Task<Application.Features.Products.GetProductById.ProductDetailReadModel?> GetDetailBySlugAsync(
+        string slug,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedSlug = slug.Trim();
+        var product = await _dbContext.Products
+            .AsNoTracking()
+            .Where(x => x.Slug == normalizedSlug)
+            .Select(x => new ProductDetailRow(
+                x.Id,
+                x.ZortProductId,
+                x.ProductType,
+                x.Name,
+                x.Description,
+                x.BaseSku,
+                x.Barcode,
+                x.SellPrice,
+                x.SellVatStatus,
+                x.PurchasePrice,
+                x.PurchaseVatStatus,
+                x.Stock,
+                x.AvailableStock,
+                x.UnitText,
+                x.ImageUrl,
+                x.Weight,
+                x.Height,
+                x.Length,
+                x.Width,
+                x.ZortCategoryId,
+                x.CategoryName,
+                x.ZortSubCategoryId,
+                x.SubCategoryName,
+                x.ZortVariationId,
+                x.IsActiveFromZort,
+                x.IsVisibleOnLiff,
+                x.IsFeatured,
+                x.IsBestSeller,
+                x.IsOnHomepage,
+                x.Slug,
+                x.OriginalPrice,
+                x.PromotionBadge,
+                x.Highlights,
+                x.RichDescription,
+                x.Source,
+                x.Status,
+                x.LastSyncedAt,
+                x.MissingFromZortAt))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (product is null)
+            return null;
+
+        var images = await _dbContext.ProductImages
+            .AsNoTracking()
+            .Where(x => x.ProductId == product.Id)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => new Application.Features.Products.GetProductById.ProductImageReadModel(
+                x.Id,
+                x.Url,
+                x.SortOrder,
+                x.IsPrimary))
+            .ToArrayAsync(cancellationToken);
+
+        var variants = await _dbContext.ProductVariants
+            .AsNoTracking()
+            .Where(x => x.ProductId == product.Id)
+            .Select(x => new Application.Features.Products.GetProductById.ProductVariantReadModel(
+                x.Id,
+                x.ZortProductId,
+                x.ZortVariationId,
+                x.Sku,
+                x.VariantCode,
+                x.Barcode,
+                x.SellPrice,
+                x.Stock,
+                x.AvailableStock,
+                x.UnitText,
+                x.ImageUrl,
+                x.IsActiveFromZort,
+                x.Status,
+                x.OptionsJson))
+            .ToArrayAsync(cancellationToken);
+
+        return new Application.Features.Products.GetProductById.ProductDetailReadModel(
+            product.Id,
+            product.ZortProductId,
+            product.ProductType,
+            product.Name,
+            product.Description,
+            product.BaseSku,
+            product.Barcode,
+            product.SellPrice,
+            product.SellVatStatus,
+            product.PurchasePrice,
+            product.PurchaseVatStatus,
+            product.Stock,
+            product.AvailableStock,
+            product.UnitText,
+            product.ImageUrl,
+            product.Weight,
+            product.Height,
+            product.Length,
+            product.Width,
+            product.ZortCategoryId,
+            product.CategoryName,
+            product.ZortSubCategoryId,
+            product.SubCategoryName,
+            product.ZortVariationId,
+            product.IsActiveFromZort,
+            product.IsVisibleOnLiff,
+            product.IsFeatured,
+            product.IsBestSeller,
+            product.IsOnHomepage,
+            product.Slug,
+            product.OriginalPrice,
+            product.PromotionBadge,
+            product.Highlights,
+            product.RichDescription,
+            product.Source,
+            product.Status,
+            product.LastSyncedAt,
+            product.MissingFromZortAt,
+            images,
+            variants);
+    }
+
     public Task<Product?> GetBySlugWithVariantsAndImagesAsync(string slug, CancellationToken cancellationToken = default)
     {
         return _dbContext.Products
@@ -549,6 +675,46 @@ public sealed class ProductRepository : IProductRepository
     private sealed record ProductListVariantRow(Guid ProductId, int Stock, int AvailableStock, string? ImageUrl);
 
     private sealed record RelatedProductProfile(string? CategoryName, string? SubCategoryName);
+
+    private sealed record ProductDetailRow(
+        Guid Id,
+        long? ZortProductId,
+        int ProductType,
+        string Name,
+        string? Description,
+        string? BaseSku,
+        string? Barcode,
+        decimal SellPrice,
+        int SellVatStatus,
+        decimal? PurchasePrice,
+        int PurchaseVatStatus,
+        int Stock,
+        int AvailableStock,
+        string? UnitText,
+        string? ImageUrl,
+        decimal? Weight,
+        decimal? Height,
+        decimal? Length,
+        decimal? Width,
+        long? ZortCategoryId,
+        string? CategoryName,
+        long? ZortSubCategoryId,
+        string? SubCategoryName,
+        long? ZortVariationId,
+        bool IsActiveFromZort,
+        bool IsVisibleOnLiff,
+        bool IsFeatured,
+        bool IsBestSeller,
+        bool IsOnHomepage,
+        string? Slug,
+        decimal? OriginalPrice,
+        string? PromotionBadge,
+        string? Highlights,
+        string? RichDescription,
+        ProductSource Source,
+        ProductStatus Status,
+        DateTime? LastSyncedAt,
+        DateTime? MissingFromZortAt);
 
     private static readonly MemoryCacheEntryOptions RelatedListCacheOptions = new()
     {

@@ -31,7 +31,7 @@ public sealed class GetProductBySlugHandler
             return cached;
         }
 
-        var product = await _products.GetBySlugWithVariantsAndImagesAsync(query.Slug, cancellationToken)
+        var product = await _products.GetDetailBySlugAsync(query.Slug, cancellationToken)
             ?? throw new NotFoundException("Product was not found.");
 
         if (!product.IsVisibleToCustomer)
@@ -87,7 +87,7 @@ public sealed class GetProductBySlugHandler
             product.Status,
             product.LastSyncedAt,
             product.MissingFromZortAt,
-            product.Images.OrderBy(x => x.SortOrder).Select(x => new ProductImageResponse(x.Id, x.Url, x.SortOrder, x.IsPrimary)).ToArray(),
+            product.Images.Select(x => new ProductImageResponse(x.Id, x.Url, x.SortOrder, x.IsPrimary)).ToArray(),
             product.Variants.Select(x => new ProductVariantResponse(
                 x.Id,
                 x.ZortProductId,

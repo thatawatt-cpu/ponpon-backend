@@ -55,7 +55,11 @@ var tests = new (string Name, Action Run)[]
     (nameof(PricingPipelineTests.AppliesOneDiscountCouponAndOneFreeShippingCoupon),
         new PricingPipelineTests().AppliesOneDiscountCouponAndOneFreeShippingCoupon),
     (nameof(PricingPipelineTests.RejectsTwoDiscountCoupons),
-        new PricingPipelineTests().RejectsTwoDiscountCoupons)
+        new PricingPipelineTests().RejectsTwoDiscountCoupons),
+    (nameof(CheckoutPricingQuoteServiceTests.CreatesPartialQuoteWithoutShippingDetails),
+        new CheckoutPricingQuoteServiceTests().CreatesPartialQuoteWithoutShippingDetails),
+    (nameof(CheckoutPricingQuoteServiceTests.FinalizesQuoteWhenShippingDetailsAreComplete),
+        new CheckoutPricingQuoteServiceTests().FinalizesQuoteWhenShippingDetailsAreComplete)
 };
 
 foreach (var test in tests)

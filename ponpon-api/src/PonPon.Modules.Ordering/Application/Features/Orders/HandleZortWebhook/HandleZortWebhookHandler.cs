@@ -5,6 +5,7 @@ using PonPon.Modules.Ordering.Application.Services;
 using PonPon.Modules.Ordering.Domain.Orders;
 using PonPon.Modules.Ordering.Infrastructure.ExternalServices.Zort;
 using PonPon.Shared.Application.Abstractions;
+using System.Text;
 
 namespace PonPon.Modules.Ordering.Application.Features.Orders.HandleZortWebhook;
 
@@ -280,11 +281,28 @@ public sealed class HandleZortWebhookHandler
         var province = parts[^2];
         var state = parts[^3];
         var district = parts[^4];
-        var address = string.Join(' ', parts[..^4]);
+        var address = BuildSpaceSeparated(parts[..^4]);
 
         return string.IsNullOrWhiteSpace(address)
             ? null
             : new ParsedShippingAddress(address, district, state, province, postcode);
+    }
+
+    private static string BuildSpaceSeparated(IEnumerable<string> parts)
+    {
+        var builder = new StringBuilder();
+        foreach (var part in parts)
+        {
+            if (string.IsNullOrWhiteSpace(part))
+                continue;
+
+            if (builder.Length > 0)
+                builder.Append(' ');
+
+            builder.Append(part.Trim());
+        }
+
+        return builder.ToString();
     }
 
     private sealed record ParsedShippingAddress(

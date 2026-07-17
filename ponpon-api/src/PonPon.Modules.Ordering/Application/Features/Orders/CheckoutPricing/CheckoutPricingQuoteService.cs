@@ -47,12 +47,12 @@ public sealed class CheckoutPricingQuoteService(
         if (resolved.ShippingFinalized)
         {
             var shippingChannel = EmptyToNull(payload.ShippingChannel)!;
-            var address = ParseAddress(payload.ShippingAddress)
+            var address = ParseAddress(payload.ShippingAddress!)
                 ?? throw new BadRequestException("ShippingAddress must end with district, state, province, and postcode.");
             var shippingTasks = resolved.Packages
                 .Select(package => shippingRates.GetShippingAmountAsync(
                     new ShippingRateQuoteRequest(
-                        payload.ShippingName.Trim(), payload.ShippingPhone.Trim(),
+                        payload.ShippingName!.Trim(), payload.ShippingPhone!.Trim(),
                         EmptyToNull(payload.CustomerEmail),
                         address.Address, address.District, address.State, address.Province, address.Postcode,
                         $"Checkout pricing quote {package.BoxCode}",
@@ -134,7 +134,8 @@ public sealed class CheckoutPricingQuoteService(
         var shippingChannel = EmptyToNull(payload.ShippingChannel);
         var packages = CheckoutPackagePacker.Pack(packableItems);
         var canPack = packages is not null;
-        var shippingFinalized = shippingChannel is not null && canPack;
+        var hasShippingDetails = HasShippingDetails(payload);
+        var shippingFinalized = shippingChannel is not null && hasShippingDetails && canPack;
         var shippingPackages = packages ?? [];
         var status = canPack ? shippingFinalized ? "final" : "partial" : "manual_shipping_required";
         return new ResolvedCheckoutPricingPayload(lines, shippingFinalized, shippingFinalized, status, shippingPackages);
@@ -157,7 +158,9 @@ public sealed class CheckoutPricingQuoteService(
     private static ParsedAddress? ParseAddress(string value)
     {
         var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return parts.Length < 5 ? null : new(string.Join(' ', parts[..^4]), parts[^4], parts[^3], parts[^2], parts[^1]);
+        return parts.Length < 5
+            ? null
+            : new(BuildSpaceSeparated(parts[..^4]), parts[^4], parts[^3], parts[^2], parts[^1]);
     }
 
     private static object NormalizePayload(
@@ -168,9 +171,9 @@ public sealed class CheckoutPricingQuoteService(
         => new
         {
             CustomerEmail = NormalizeNullable(payload.CustomerEmail),
-            ShippingName = NormalizeRequired(payload.ShippingName),
-            ShippingPhone = NormalizeRequired(payload.ShippingPhone),
-            ShippingAddress = shippingFinalized ? NormalizeRequired(payload.ShippingAddress) : null,
+            ShippingName = NormalizeNullable(payload.ShippingName),
+            ShippingPhone = NormalizeNullable(payload.ShippingPhone),
+            ShippingAddress = NormalizeNullable(payload.ShippingAddress),
             ShippingChannel = NormalizeNullable(payload.ShippingChannel),
             CouponCode = NormalizeNullable(payload.CouponCode),
             CouponCodes = (payload.CouponCodes ?? [])
@@ -285,23 +288,52 @@ public sealed class CheckoutPricingQuoteService(
     private static string? EmptyToNull(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    private static bool HasShippingDetails(CheckoutPricingPayload payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload.ShippingName)
+            || string.IsNullOrWhiteSpace(payload.ShippingPhone)
+            || string.IsNullOrWhiteSpace(payload.ShippingAddress))
+        {
+            return false;
+        }
+
+        if (ParseAddress(payload.ShippingAddress) is null)
+            throw new BadRequestException("ShippingAddress must end with district, state, province, and postcode.");
+
+        return true;
+    }
+
     private static string? NormalizeNullable(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static string NormalizeRequired(string value)
-        => value.Trim();
-
     private static decimal Money(decimal value)
         => Math.Round(value, 2, MidpointRounding.AwayFromZero);
+
+    private static string BuildSpaceSeparated(IEnumerable<string> parts)
+    {
+        var builder = new StringBuilder();
+        foreach (var part in parts)
+        {
+            if (string.IsNullOrWhiteSpace(part))
+                continue;
+
+            if (builder.Length > 0)
+                builder.Append(' ');
+
+            builder.Append(part.Trim());
+        }
+
+        return builder.ToString();
+    }
 
     private sealed record ParsedAddress(string Address, string District, string State, string Province, string Postcode);
 }
 
 public sealed record CheckoutPricingPayload(
     string? CustomerEmail,
-    string ShippingName,
-    string ShippingPhone,
-    string ShippingAddress,
+    string? ShippingName,
+    string? ShippingPhone,
+    string? ShippingAddress,
     string? ShippingChannel,
     string? CouponCode,
     IReadOnlyCollection<CheckoutPricingItem> Items,
