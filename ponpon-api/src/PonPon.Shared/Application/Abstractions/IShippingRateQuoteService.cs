@@ -16,9 +16,15 @@ public sealed record ShippingRateQuoteRequest(
     double HeightCm,
     string ShippingChannel);
 
+public sealed record ShippingRateQuoteOption(string ShippingChannel, decimal Amount);
+
 public interface IShippingRateQuoteService
 {
     Task<decimal> GetShippingAmountAsync(
+        ShippingRateQuoteRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyCollection<ShippingRateQuoteOption>> GetShippingOptionsAsync(
         ShippingRateQuoteRequest request,
         CancellationToken cancellationToken = default);
 }

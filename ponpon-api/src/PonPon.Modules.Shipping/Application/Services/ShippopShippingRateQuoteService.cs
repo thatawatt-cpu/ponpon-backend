@@ -28,9 +28,29 @@ public sealed class ShippopShippingRateQuoteService : IShippingRateQuoteService
         ShippingRateQuoteRequest request,
         CancellationToken cancellationToken = default)
     {
-        var cacheKey = CacheKey(request);
-        if (_cache.TryGetValue(cacheKey, out decimal cachedAmount))
-            return cachedAmount;
+        var matchingRates = (await GetShippingOptionsAsync(request, cancellationToken))
+            .Where(x => string.Equals(x.ShippingChannel, request.ShippingChannel, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (matchingRates.Length == 0)
+        {
+            throw new BadRequestException(
+                $"Shipping channel '{request.ShippingChannel}' is unavailable for this order.");
+        }
+
+        return matchingRates.Min(x => x.Amount);
+    }
+
+    public async Task<IReadOnlyCollection<ShippingRateQuoteOption>> GetShippingOptionsAsync(
+        ShippingRateQuoteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var cacheKey = CacheKey(request, includeShippingChannel: false);
+        if (_cache.TryGetValue(cacheKey, out IReadOnlyCollection<ShippingRateQuoteOption>? cachedOptions)
+            && cachedOptions is not null)
+        {
+            return cachedOptions;
+        }
 
         var rates = await _shippop.CheckRatesAsync(
             new ShippopAddress(
@@ -50,24 +70,16 @@ public sealed class ShippopShippingRateQuoteService : IShippingRateQuoteService
                 request.HeightCm),
             cancellationToken);
 
-        var matchingRates = rates
-            .Where(x =>
-                string.Equals(x.CourierCode, request.ShippingChannel, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(x.ServiceCode, request.ShippingChannel, StringComparison.OrdinalIgnoreCase))
+        var options = rates
+            .Where(x => !string.IsNullOrWhiteSpace(x.CourierCode))
+            .GroupBy(x => x.CourierCode.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(x => new ShippingRateQuoteOption(x.Key, x.Min(rate => rate.Price)))
             .ToArray();
-
-        if (matchingRates.Length == 0)
-        {
-            throw new BadRequestException(
-                $"Shipping channel '{request.ShippingChannel}' is unavailable for this order.");
-        }
-
-        var amount = matchingRates.Min(x => x.Price);
-        _cache.Set(cacheKey, amount, CacheOptions);
-        return amount;
+        _cache.Set(cacheKey, options, CacheOptions);
+        return options;
     }
 
-    private static string CacheKey(ShippingRateQuoteRequest request)
+    private static string CacheKey(ShippingRateQuoteRequest request, bool includeShippingChannel)
         => string.Join('|',
             "shippop-rate",
             Normalize(request.Address),
@@ -79,7 +91,7 @@ public sealed class ShippopShippingRateQuoteService : IShippingRateQuoteService
             Math.Round(request.WidthCm, 1, MidpointRounding.AwayFromZero),
             Math.Round(request.LengthCm, 1, MidpointRounding.AwayFromZero),
             Math.Round(request.HeightCm, 1, MidpointRounding.AwayFromZero),
-            Normalize(request.ShippingChannel));
+            includeShippingChannel ? Normalize(request.ShippingChannel) : "-");
 
     private static string Normalize(string value)
         => value.Trim().ToLowerInvariant();

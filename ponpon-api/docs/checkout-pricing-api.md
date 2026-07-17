@@ -8,7 +8,7 @@ Call `POST /api/orders/pricing-preview` whenever cart items, shipping address/ch
   "shippingName": "Buyer",
   "shippingPhone": "0812345678",
   "shippingAddress": "99 Road district state province 10110",
-  "shippingChannel": "standard",
+  "shippingChannel": "COURIER_CODE_FROM_RATES",
   "couponCode": "WELCOME10",
   "items": [
     { "productId": "00000000-0000-0000-0000-000000000000", "variantId": null, "quantity": 1 }
@@ -24,7 +24,7 @@ Partial cart quote before the customer has a shipping address:
   "shippingName": null,
   "shippingPhone": null,
   "shippingAddress": null,
-  "shippingChannel": "standard",
+  "shippingChannel": null,
   "couponCode": null,
   "items": [
     { "productId": "00000000-0000-0000-0000-000000000000", "variantId": null, "quantity": 1 }
@@ -37,6 +37,14 @@ When shipping details are missing, the response has `isFinal: false`,
 shown in cart/checkout as an estimated item total, but it cannot be used to create an
 order until the customer adds a valid shipping name, phone, address, and channel and a
 new final quote is created.
+
+`shippingChannel` must be an actual SHIPPOP `courierCode` or `serviceCode` returned by
+`POST /api/shipping/rates`. Do not send placeholder values such as `"standard"`. If the
+customer has a shipping address but has not selected a courier yet, send
+`shippingChannel: null`; the pricing API will choose the cheapest available channel and
+return it as `selectedShippingChannel`. The frontend must send that selected channel when
+creating the order. If shipping details are missing, `selectedShippingChannel` is `null`
+and the quote remains partial.
 
 Render `lines`, `itemSubtotal`, `shippingAmount`, `couponDiscountAmount`, `vatAmount`, `grandTotal`, and `adjustments`. Treat HTTP 400 as an invalid coupon, unavailable quota/stock, unsupported shipping address, or invalid request and show the API error message.
 

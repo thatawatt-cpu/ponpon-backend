@@ -29,7 +29,7 @@ public sealed class CheckoutPricingQuoteService(
 
         var resolved = await ResolvePayloadAsync(payload, cancellationToken);
         return new CheckoutPricingPayloadHash(
-            Hash(NormalizePayload(payload, resolved.Lines, resolved.ShippingFinalized, resolved.Packages)),
+            Hash(NormalizePayload(payload, resolved.Lines, resolved.ShippingChannel, resolved.Packages)),
             resolved.ShippingFinalized,
             resolved.IsFinal,
             resolved.CalculationStatus);
@@ -46,7 +46,7 @@ public sealed class CheckoutPricingQuoteService(
         var shippingAmount = 0m;
         if (resolved.ShippingFinalized)
         {
-            var shippingChannel = EmptyToNull(payload.ShippingChannel)!;
+            var shippingChannel = resolved.ShippingChannel!;
             var address = ParseAddress(payload.ShippingAddress!)
                 ?? throw new BadRequestException("ShippingAddress must end with district, state, province, and postcode.");
             var shippingTasks = resolved.Packages
@@ -63,7 +63,6 @@ public sealed class CheckoutPricingQuoteService(
             shippingAmount = (await Task.WhenAll(shippingTasks)).Sum();
         }
 
-        var shippingChannelForPricing = EmptyToNull(payload.ShippingChannel);
         var result = await pipeline.ExecuteAsync(
             new PricingContext(
                 resolved.Lines,
@@ -72,11 +71,11 @@ public sealed class CheckoutPricingQuoteService(
                 clock.UtcNow,
                 currentUser.CustomerId,
                 SyncOrdersFromZortHandler.LineLiffSalesChannel,
-                shippingChannel: shippingChannelForPricing,
+                shippingChannel: resolved.ShippingChannel,
                 couponCodes: payload.CouponCodes),
             cancellationToken);
 
-        var payloadHash = Hash(NormalizePayload(payload, resolved.Lines, resolved.ShippingFinalized, resolved.Packages));
+        var payloadHash = Hash(NormalizePayload(payload, resolved.Lines, resolved.ShippingChannel, resolved.Packages));
         var calculationHash = Hash(NormalizeCalculation(payloadHash, resolved.ShippingFinalized, result, resolved.Packages));
         return new CheckoutPricingQuoteDraft(
             result,
@@ -85,6 +84,7 @@ public sealed class CheckoutPricingQuoteService(
             resolved.ShippingFinalized,
             IsFinal: resolved.IsFinal,
             CalculationStatus: resolved.CalculationStatus,
+            resolved.ShippingChannel,
             resolved.Packages);
     }
 
@@ -135,10 +135,13 @@ public sealed class CheckoutPricingQuoteService(
         var packages = CheckoutPackagePacker.Pack(packableItems);
         var canPack = packages is not null;
         var hasShippingDetails = HasShippingDetails(payload);
-        var shippingFinalized = shippingChannel is not null && hasShippingDetails && canPack;
         var shippingPackages = packages ?? [];
+        if (canPack && hasShippingDetails && shippingChannel is null)
+            shippingChannel = await ResolveCheapestShippingChannelAsync(payload, shippingPackages, cancellationToken);
+
+        var shippingFinalized = shippingChannel is not null && hasShippingDetails && canPack;
         var status = canPack ? shippingFinalized ? "final" : "partial" : "manual_shipping_required";
-        return new ResolvedCheckoutPricingPayload(lines, shippingFinalized, shippingFinalized, status, shippingPackages);
+        return new ResolvedCheckoutPricingPayload(lines, shippingFinalized, shippingFinalized, status, shippingChannel, shippingPackages);
     }
 
     private static ProductVariant ResolveVariant(Product product, Guid? variantId)
@@ -166,7 +169,7 @@ public sealed class CheckoutPricingQuoteService(
     private static object NormalizePayload(
         CheckoutPricingPayload payload,
         IReadOnlyCollection<PricingLineInput> lines,
-        bool shippingFinalized,
+        string? shippingChannel,
         IReadOnlyCollection<CheckoutShippingPackage> packages)
         => new
         {
@@ -174,7 +177,7 @@ public sealed class CheckoutPricingQuoteService(
             ShippingName = NormalizeNullable(payload.ShippingName),
             ShippingPhone = NormalizeNullable(payload.ShippingPhone),
             ShippingAddress = NormalizeNullable(payload.ShippingAddress),
-            ShippingChannel = NormalizeNullable(payload.ShippingChannel),
+            ShippingChannel = NormalizeNullable(shippingChannel),
             CouponCode = NormalizeNullable(payload.CouponCode),
             CouponCodes = (payload.CouponCodes ?? [])
                 .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -309,6 +312,43 @@ public sealed class CheckoutPricingQuoteService(
     private static decimal Money(decimal value)
         => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 
+    private async Task<string> ResolveCheapestShippingChannelAsync(
+        CheckoutPricingPayload payload,
+        IReadOnlyCollection<CheckoutShippingPackage> packages,
+        CancellationToken cancellationToken)
+    {
+        var address = ParseAddress(payload.ShippingAddress!)
+            ?? throw new BadRequestException("ShippingAddress must end with district, state, province, and postcode.");
+        var optionTasks = packages
+            .Select(package => shippingRates.GetShippingOptionsAsync(
+                new ShippingRateQuoteRequest(
+                    payload.ShippingName!.Trim(), payload.ShippingPhone!.Trim(),
+                    EmptyToNull(payload.CustomerEmail),
+                    address.Address, address.District, address.State, address.Province, address.Postcode,
+                    $"Checkout pricing quote {package.BoxCode}",
+                    (double)package.WeightKg, (double)package.WidthCm, (double)package.LengthCm,
+                    (double)package.HeightCm, string.Empty),
+                cancellationToken))
+            .ToArray();
+        var packageOptions = await Task.WhenAll(optionTasks);
+        var packageCount = packageOptions.Length;
+        var cheapest = packageOptions
+            .SelectMany(x => x)
+            .GroupBy(x => x.ShippingChannel, StringComparer.OrdinalIgnoreCase)
+            .Where(x => x.Count() == packageCount)
+            .Select(x => new
+            {
+                ShippingChannel = x.Key,
+                TotalAmount = x.Sum(option => option.Amount)
+            })
+            .OrderBy(x => x.TotalAmount)
+            .ThenBy(x => x.ShippingChannel, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+
+        return cheapest?.ShippingChannel
+            ?? throw new BadRequestException("No shipping channel is available for this order.");
+    }
+
     private static string BuildSpaceSeparated(IEnumerable<string> parts)
     {
         var builder = new StringBuilder();
@@ -348,6 +388,7 @@ public sealed record CheckoutPricingQuoteDraft(
     bool ShippingFinalized,
     bool IsFinal,
     string CalculationStatus,
+    string? ShippingChannel,
     IReadOnlyCollection<CheckoutShippingPackage> Packages);
 
 public sealed record CheckoutPricingPayloadHash(
@@ -361,4 +402,5 @@ internal sealed record ResolvedCheckoutPricingPayload(
     bool ShippingFinalized,
     bool IsFinal,
     string CalculationStatus,
+    string? ShippingChannel,
     IReadOnlyCollection<CheckoutShippingPackage> Packages);

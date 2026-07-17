@@ -53,6 +53,7 @@ public sealed class PreviewPricingHandler(
             quote.IsFinal,
             quote.CalculationStatus,
             quote.ShippingFinalized,
+            draft.ShippingChannel,
             draft.Packages,
             draft.Pricing.Lines.Select(x => new PreviewPricingLineResponse(
                 x.Input.ProductId, x.Input.VariantId, x.Input.Sku, x.Input.Name, x.Input.Quantity,
@@ -82,6 +83,7 @@ public sealed record PreviewPricingResponse(
     bool IsFinal,
     string CalculationStatus,
     bool ShippingFinalized,
+    string? SelectedShippingChannel,
     IReadOnlyCollection<CheckoutShippingPackage> Packages,
     IReadOnlyCollection<PreviewPricingLineResponse> Lines,
     decimal ItemSubtotal,

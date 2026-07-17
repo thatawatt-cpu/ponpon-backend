@@ -60,6 +60,33 @@ public sealed class CheckoutPricingQuoteServiceTests
         AssertEqual(1, shippingRates.CallCount);
     }
 
+    public void SelectsCheapestShippingChannelWhenNotProvided()
+    {
+        var product = CreateProduct();
+        var shippingRates = new FakeShippingRateQuoteService(
+            45m,
+            [
+                new ShippingRateQuoteOption("EXPRESS", 80m),
+                new ShippingRateQuoteOption("ECONOMY", 45m)
+            ]);
+        var service = CreateService(product, shippingRates);
+
+        var draft = service.CalculateAsync(new CheckoutPricingPayload(
+            "buyer@example.com",
+            "Buyer",
+            "0812345678",
+            "99 Road district state province 10110",
+            null,
+            null,
+            [new CheckoutPricingItem(product.Id, product.Variants.Single().Id, 1)]))
+            .GetAwaiter()
+            .GetResult();
+
+        AssertEqual(true, draft.IsFinal);
+        AssertEqual("ECONOMY", draft.ShippingChannel);
+        AssertEqual(145m, draft.Pricing.GrandTotal);
+    }
+
     private static CheckoutPricingQuoteService CreateService(
         Product product,
         IShippingRateQuoteService shippingRates)
@@ -126,7 +153,9 @@ public sealed class CheckoutPricingQuoteServiceTests
         public IReadOnlyCollection<string> Roles => [];
     }
 
-    private sealed class FakeShippingRateQuoteService(decimal amount) : IShippingRateQuoteService
+    private sealed class FakeShippingRateQuoteService(
+        decimal amount,
+        IReadOnlyCollection<ShippingRateQuoteOption>? options = null) : IShippingRateQuoteService
     {
         public int CallCount { get; private set; }
 
@@ -135,8 +164,15 @@ public sealed class CheckoutPricingQuoteServiceTests
             CancellationToken cancellationToken = default)
         {
             CallCount++;
-            return Task.FromResult(amount);
+            var option = options?.FirstOrDefault(x =>
+                string.Equals(x.ShippingChannel, request.ShippingChannel, StringComparison.OrdinalIgnoreCase));
+            return Task.FromResult(option?.Amount ?? amount);
         }
+
+        public Task<IReadOnlyCollection<ShippingRateQuoteOption>> GetShippingOptionsAsync(
+            ShippingRateQuoteRequest request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(options ?? [new ShippingRateQuoteOption(request.ShippingChannel, amount)]);
     }
 
     private sealed class FakeProductRepository(Product product) : IProductRepository
