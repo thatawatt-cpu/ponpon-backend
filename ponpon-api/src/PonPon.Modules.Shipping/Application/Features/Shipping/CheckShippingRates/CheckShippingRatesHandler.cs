@@ -41,21 +41,23 @@ public sealed class CheckShippingRatesHandler
         if (availableRates.Length == 0)
             return [];
 
-        var cheapest = availableRates
+        var valueRates = RemoveDominatedRates(availableRates);
+
+        var cheapest = valueRates
             .OrderBy(x => x.Rate.Price)
             .ThenBy(x => x.Estimate.MinDays ?? int.MaxValue)
             .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays ?? int.MaxValue)
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
             .First();
 
-        var fastest = availableRates
+        var fastest = valueRates
             .Where(x => x.Estimate.MinDays.HasValue)
             .OrderBy(x => x.Estimate.MinDays)
             .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays)
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault() ?? cheapest;
 
-        var standard = SelectStandardByDeliveryDays(availableRates, [cheapest.Rate, fastest.Rate]);
+        var standard = SelectStandardByDeliveryDays(valueRates, [cheapest, fastest]);
 
         var options = new List<ShippingRateResponse>
         {
@@ -95,10 +97,12 @@ public sealed class CheckShippingRatesHandler
 
     private static RateCandidate? SelectStandardByDeliveryDays(
         IReadOnlyCollection<RateCandidate> rates,
-        IReadOnlyCollection<ShippopRateDto> excludedRates)
+        IReadOnlyCollection<RateCandidate> excludedRates)
     {
         var ordered = rates
-            .Where(x => !excludedRates.Any(excluded => SameShippingOption(excluded, x.Rate)))
+            .Where(x => !excludedRates.Any(excluded =>
+                SameShippingOption(excluded.Rate, x.Rate)
+                || SameDeliveryWindow(excluded.Estimate, x.Estimate)))
             .OrderBy(x => x.Estimate.MinDays ?? int.MaxValue)
             .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays ?? int.MaxValue)
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
@@ -110,6 +114,19 @@ public sealed class CheckShippingRatesHandler
         return ordered[(ordered.Length - 1) / 2];
     }
 
+    private static IReadOnlyCollection<RateCandidate> RemoveDominatedRates(IReadOnlyCollection<RateCandidate> rates)
+    {
+        var valueRates = rates
+            .Where(candidate => !rates.Any(other =>
+                !SameShippingOption(candidate.Rate, other.Rate)
+                && IsNoMoreExpensive(other, candidate)
+                && IsNoSlower(other, candidate)
+                && (other.Rate.Price < candidate.Rate.Price || IsStrictlyFaster(other, candidate))))
+            .ToArray();
+
+        return valueRates.Length == 0 ? rates : valueRates;
+    }
+
     private static bool SameShippingOption(ShippingRateResponse left, ShippopRateDto right)
         => string.Equals(left.CourierCode, right.CourierCode, StringComparison.OrdinalIgnoreCase)
            && string.Equals(left.ServiceCode, right.ServiceCode, StringComparison.OrdinalIgnoreCase);
@@ -117,6 +134,36 @@ public sealed class CheckShippingRatesHandler
     private static bool SameShippingOption(ShippopRateDto left, ShippopRateDto right)
         => string.Equals(left.CourierCode, right.CourierCode, StringComparison.OrdinalIgnoreCase)
            && string.Equals(left.ServiceCode, right.ServiceCode, StringComparison.OrdinalIgnoreCase);
+
+    private static bool SameDeliveryWindow(ParsedEstimate left, ParsedEstimate right)
+        => left.MinDays == right.MinDays && left.MaxDays == right.MaxDays;
+
+    private static bool IsNoMoreExpensive(RateCandidate left, RateCandidate right)
+        => left.Rate.Price <= right.Rate.Price;
+
+    private static bool IsNoSlower(RateCandidate left, RateCandidate right)
+    {
+        if (!left.Estimate.MinDays.HasValue)
+            return false;
+        if (!right.Estimate.MinDays.HasValue)
+            return true;
+
+        var leftMax = left.Estimate.MaxDays ?? left.Estimate.MinDays.Value;
+        var rightMax = right.Estimate.MaxDays ?? right.Estimate.MinDays.Value;
+        return left.Estimate.MinDays.Value <= right.Estimate.MinDays.Value && leftMax <= rightMax;
+    }
+
+    private static bool IsStrictlyFaster(RateCandidate left, RateCandidate right)
+    {
+        if (!left.Estimate.MinDays.HasValue)
+            return false;
+        if (!right.Estimate.MinDays.HasValue)
+            return true;
+
+        var leftMax = left.Estimate.MaxDays ?? left.Estimate.MinDays.Value;
+        var rightMax = right.Estimate.MaxDays ?? right.Estimate.MinDays.Value;
+        return left.Estimate.MinDays.Value < right.Estimate.MinDays.Value || leftMax < rightMax;
+    }
 
     private static ParsedEstimate ParseEstimateDays(string? estimateTime)
     {

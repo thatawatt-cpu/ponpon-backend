@@ -51,7 +51,9 @@ Shipping options:
 `POST /api/shipping/rates` returns only the customer-facing choices: cheapest, standard,
 and fastest. The standard option is the middle delivery-day option and is `isDefault:
 true` when available. The fastest option has the lowest estimated delivery days. If two
-choices resolve to the same courier, the API returns that courier only once.
+choices resolve to the same courier or the same delivery-day window, the API returns that
+choice only once. The API also hides dominated choices: a courier is omitted when another
+available courier is cheaper or equal in price and faster or equal in delivery time.
 
 ```json
 [
