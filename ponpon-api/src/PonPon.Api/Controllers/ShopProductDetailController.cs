@@ -13,6 +13,28 @@ namespace PonPon.Api.Controllers;
 [ApiController]
 public sealed class ShopProductDetailController : ControllerBase
 {
+    [HttpGet("api/shop/products/{id:guid}/summary")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ShopProductSummaryResponse>> GetSummaryById(
+        Guid id,
+        [FromServices] GetProductByIdHandler productHandler,
+        CancellationToken cancellationToken)
+    {
+        var product = await productHandler.HandleAsync(new GetProductByIdQuery(id), cancellationToken);
+        return Ok(BuildSummaryResponse(product));
+    }
+
+    [HttpGet("api/shop/products/slug/{slug}/summary")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ShopProductSummaryResponse>> GetSummaryBySlug(
+        string slug,
+        [FromServices] GetProductBySlugHandler productHandler,
+        CancellationToken cancellationToken)
+    {
+        var product = await productHandler.HandleAsync(new GetProductBySlugQuery(slug), cancellationToken);
+        return Ok(BuildSummaryResponse(product));
+    }
+
     [HttpGet("api/shop/products/{id:guid}/detail")]
     [AllowAnonymous]
     public async Task<ActionResult<ShopProductDetailResponse>> GetById(
@@ -108,6 +130,51 @@ public sealed class ShopProductDetailController : ControllerBase
                 product.PriceSource,
                 product.ActiveFlashSaleId));
     }
+
+    private static ShopProductSummaryResponse BuildSummaryResponse(ProductDetailResponse product)
+    {
+        var primaryImage = product.Images
+            .OrderByDescending(x => x.IsPrimary)
+            .ThenBy(x => x.SortOrder)
+            .FirstOrDefault();
+        var imageUrl = primaryImage?.Url ?? product.ImageUrl;
+        var activeVariants = product.Variants
+            .Where(x => x.IsActiveFromZort)
+            .Select(x => new ShopProductSummaryVariantResponse(
+                x.Id,
+                x.Sku,
+                x.VariantCode,
+                x.SellPrice,
+                x.Stock,
+                x.AvailableStock,
+                x.ImageUrl,
+                x.Options))
+            .ToArray();
+
+        return new ShopProductSummaryResponse(
+            product.Id,
+            product.Slug,
+            product.Name,
+            product.BaseSku,
+            product.CategoryName,
+            product.ZortCategoryId,
+            imageUrl,
+            product.DisplayPrice,
+            product.DisplayOriginalPrice,
+            product.PriceSource,
+            product.ActiveFlashSaleId,
+            product.Stock,
+            product.AvailableStock,
+            product.SoldCount,
+            product.PromotionBadge,
+            product.Highlights,
+            activeVariants,
+            new ResolvedProductPriceResponse(
+                product.DisplayPrice,
+                product.DisplayOriginalPrice,
+                product.PriceSource,
+                product.ActiveFlashSaleId));
+    }
 }
 
 public sealed record ShopProductDetailRequest(
@@ -119,6 +186,36 @@ public sealed record ShopProductDetailResponse(
     IReadOnlyCollection<ShopCouponResponse> AvailableCoupons,
     IReadOnlyCollection<ProductListItemResponse> RelatedProducts,
     ResolvedProductPriceResponse ResolvedPrice);
+
+public sealed record ShopProductSummaryResponse(
+    Guid Id,
+    string? Slug,
+    string Name,
+    string? BaseSku,
+    string? CategoryName,
+    long? ZortCategoryId,
+    string? ImageUrl,
+    decimal DisplayPrice,
+    decimal? DisplayOriginalPrice,
+    string PriceSource,
+    Guid? ActiveFlashSaleId,
+    int Stock,
+    int AvailableStock,
+    int SoldCount,
+    string? PromotionBadge,
+    string? Highlights,
+    IReadOnlyCollection<ShopProductSummaryVariantResponse> Variants,
+    ResolvedProductPriceResponse ResolvedPrice);
+
+public sealed record ShopProductSummaryVariantResponse(
+    Guid Id,
+    string Sku,
+    string? VariantCode,
+    decimal SellPrice,
+    int Stock,
+    int AvailableStock,
+    string? ImageUrl,
+    IReadOnlyCollection<ProductVariantOptionResponse> Options);
 
 public sealed record ResolvedProductPriceResponse(
     decimal DisplayPrice,
