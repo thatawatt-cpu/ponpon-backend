@@ -60,8 +60,8 @@ var tests = new (string Name, Action Run)[]
         new CheckoutPricingQuoteServiceTests().CreatesPartialQuoteWithoutShippingDetails),
     (nameof(CheckoutPricingQuoteServiceTests.FinalizesQuoteWhenShippingDetailsAreComplete),
         new CheckoutPricingQuoteServiceTests().FinalizesQuoteWhenShippingDetailsAreComplete),
-    (nameof(CheckoutPricingQuoteServiceTests.SelectsCheapestShippingChannelWhenNotProvided),
-        new CheckoutPricingQuoteServiceTests().SelectsCheapestShippingChannelWhenNotProvided)
+    (nameof(CheckoutPricingQuoteServiceTests.SelectsDefaultShippingChannelWhenNotProvided),
+        new CheckoutPricingQuoteServiceTests().SelectsDefaultShippingChannelWhenNotProvided)
 };
 
 foreach (var test in tests)

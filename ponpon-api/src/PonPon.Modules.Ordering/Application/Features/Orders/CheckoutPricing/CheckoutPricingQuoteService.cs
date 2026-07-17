@@ -137,7 +137,7 @@ public sealed class CheckoutPricingQuoteService(
         var hasShippingDetails = HasShippingDetails(payload);
         var shippingPackages = packages ?? [];
         if (canPack && hasShippingDetails && shippingChannel is null)
-            shippingChannel = await ResolveCheapestShippingChannelAsync(payload, shippingPackages, cancellationToken);
+            shippingChannel = await ResolveDefaultShippingChannelAsync(payload, shippingPackages, cancellationToken);
 
         var shippingFinalized = shippingChannel is not null && hasShippingDetails && canPack;
         var status = canPack ? shippingFinalized ? "final" : "partial" : "manual_shipping_required";
@@ -312,7 +312,7 @@ public sealed class CheckoutPricingQuoteService(
     private static decimal Money(decimal value)
         => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 
-    private async Task<string> ResolveCheapestShippingChannelAsync(
+    private async Task<string> ResolveDefaultShippingChannelAsync(
         CheckoutPricingPayload payload,
         IReadOnlyCollection<CheckoutShippingPackage> packages,
         CancellationToken cancellationToken)
@@ -332,7 +332,7 @@ public sealed class CheckoutPricingQuoteService(
             .ToArray();
         var packageOptions = await Task.WhenAll(optionTasks);
         var packageCount = packageOptions.Length;
-        var cheapest = packageOptions
+        var standard = packageOptions
             .SelectMany(x => x)
             .GroupBy(x => x.ShippingChannel, StringComparer.OrdinalIgnoreCase)
             .Where(x => x.Count() == packageCount)
@@ -345,7 +345,7 @@ public sealed class CheckoutPricingQuoteService(
             .ThenBy(x => x.ShippingChannel, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
 
-        return cheapest?.ShippingChannel
+        return standard?.ShippingChannel
             ?? throw new BadRequestException("No shipping channel is available for this order.");
     }
 

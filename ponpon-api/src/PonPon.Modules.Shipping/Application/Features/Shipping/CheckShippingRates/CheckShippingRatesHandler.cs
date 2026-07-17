@@ -41,7 +41,7 @@ public sealed class CheckShippingRatesHandler
         if (availableRates.Length == 0)
             return [];
 
-        var cheapest = availableRates
+        var standard = availableRates
             .OrderBy(x => x.Rate.Price)
             .ThenBy(x => x.Estimate.MinDays ?? int.MaxValue)
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
@@ -55,14 +55,14 @@ public sealed class CheckShippingRatesHandler
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
 
-        if (fastest is null || SameShippingOption(cheapest.Rate, fastest.Rate))
+        if (fastest is null || SameShippingOption(standard.Rate, fastest.Rate))
         {
-            return [ToResponse(cheapest, "cheapest_fastest", "ถูกที่สุดและเร็วที่สุด", true)];
+            return [ToResponse(standard, "standard_fastest", "ปานกลางและเร็วที่สุด", true)];
         }
 
         return
         [
-            ToResponse(cheapest, "cheapest", "ถูกที่สุด", true),
+            ToResponse(standard, "standard", "ปานกลาง", true),
             ToResponse(fastest, "fastest", "เร็วที่สุด", false)
         ];
     }

@@ -41,16 +41,16 @@ new final quote is created.
 `shippingChannel` must be an actual SHIPPOP `courierCode` or `serviceCode` returned by
 `POST /api/shipping/rates`. Do not send placeholder values such as `"standard"`. If the
 customer has a shipping address but has not selected a courier yet, send
-`shippingChannel: null`; the pricing API will choose the cheapest available channel and
+`shippingChannel: null`; the pricing API will choose the default standard channel and
 return it as `selectedShippingChannel`. The frontend must send that selected channel when
 creating the order. If shipping details are missing, `selectedShippingChannel` is `null`
 and the quote remains partial.
 
 Shipping options:
 
-`POST /api/shipping/rates` returns only the customer-facing choices: cheapest and fastest.
-The cheapest option is always `isDefault: true`. If the same courier is both cheapest and
-fastest, the API returns one option with `optionType: "cheapest_fastest"`.
+`POST /api/shipping/rates` returns only the customer-facing choices: standard and fastest.
+The standard option is always `isDefault: true`. If the same courier is both standard and
+fastest, the API returns one option with `optionType: "standard_fastest"`.
 
 ```json
 [
@@ -61,8 +61,8 @@ fastest, the API returns one option with `optionType: "cheapest_fastest"`.
     "serviceCode": "FLASH",
     "price": 45,
     "estimateTime": "2-3 วัน",
-    "optionType": "cheapest",
-    "label": "ถูกที่สุด",
+    "optionType": "standard",
+    "label": "ปานกลาง",
     "isDefault": true,
     "estimatedMinDays": 2,
     "estimatedMaxDays": 3

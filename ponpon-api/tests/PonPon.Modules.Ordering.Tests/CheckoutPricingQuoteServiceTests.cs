@@ -60,7 +60,7 @@ public sealed class CheckoutPricingQuoteServiceTests
         AssertEqual(1, shippingRates.CallCount);
     }
 
-    public void SelectsCheapestShippingChannelWhenNotProvided()
+    public void SelectsDefaultShippingChannelWhenNotProvided()
     {
         var product = CreateProduct();
         var shippingRates = new FakeShippingRateQuoteService(
