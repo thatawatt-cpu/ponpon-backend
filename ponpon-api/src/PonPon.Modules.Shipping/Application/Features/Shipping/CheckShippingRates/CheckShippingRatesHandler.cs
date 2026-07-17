@@ -41,17 +41,12 @@ public sealed class CheckShippingRatesHandler
         if (availableRates.Length == 0)
             return [];
 
-        var standard = availableRates
-            .OrderBy(x => x.Rate.Price)
-            .ThenBy(x => x.Estimate.MinDays ?? int.MaxValue)
-            .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
-            .First();
+        var standard = SelectStandardByDeliveryDays(availableRates);
 
         var fastest = availableRates
             .Where(x => x.Estimate.MinDays.HasValue)
             .OrderBy(x => x.Estimate.MinDays)
             .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays)
-            .ThenBy(x => x.Rate.Price)
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
 
@@ -84,6 +79,17 @@ public sealed class CheckShippingRatesHandler
             isDefault,
             candidate.Estimate.MinDays,
             candidate.Estimate.MaxDays);
+
+    private static RateCandidate SelectStandardByDeliveryDays(IReadOnlyCollection<RateCandidate> rates)
+    {
+        var ordered = rates
+            .OrderBy(x => x.Estimate.MinDays ?? int.MaxValue)
+            .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays ?? int.MaxValue)
+            .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return ordered[(ordered.Length - 1) / 2];
+    }
 
     private static bool SameShippingOption(ShippopRateDto left, ShippopRateDto right)
         => string.Equals(left.CourierCode, right.CourierCode, StringComparison.OrdinalIgnoreCase)

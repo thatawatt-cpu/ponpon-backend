@@ -3,6 +3,7 @@ using PonPon.Modules.Shipping.Application.Abstractions;
 using PonPon.Modules.Shipping.Infrastructure.ExternalServices.Shippop;
 using PonPon.Shared.Application.Abstractions;
 using PonPon.Shared.Application.Exceptions;
+using System.Text.RegularExpressions;
 
 namespace PonPon.Modules.Shipping.Application.Services;
 
@@ -73,7 +74,18 @@ public sealed class ShippopShippingRateQuoteService : IShippingRateQuoteService
         var options = rates
             .Where(x => !string.IsNullOrWhiteSpace(x.CourierCode))
             .GroupBy(x => x.CourierCode.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(x => new ShippingRateQuoteOption(x.Key, x.Min(rate => rate.Price)))
+            .Select(x =>
+            {
+                var estimates = x
+                    .Select(rate => ParseEstimateDays(rate.EstimateTime))
+                    .Where(estimate => estimate.MinDays.HasValue)
+                    .ToArray();
+                return new ShippingRateQuoteOption(
+                    x.Key,
+                    x.Min(rate => rate.Price),
+                    estimates.Length == 0 ? null : estimates.Min(estimate => estimate.MinDays),
+                    estimates.Length == 0 ? null : estimates.Min(estimate => estimate.MaxDays ?? estimate.MinDays));
+            })
             .ToArray();
         _cache.Set(cacheKey, options, CacheOptions);
         return options;
@@ -95,4 +107,22 @@ public sealed class ShippopShippingRateQuoteService : IShippingRateQuoteService
 
     private static string Normalize(string value)
         => value.Trim().ToLowerInvariant();
+
+    private static ParsedEstimate ParseEstimateDays(string? estimateTime)
+    {
+        if (string.IsNullOrWhiteSpace(estimateTime))
+            return new ParsedEstimate(null, null);
+
+        var values = Regex.Matches(estimateTime, @"\d+")
+            .Select(x => int.TryParse(x.Value, out var value) ? value : (int?)null)
+            .OfType<int>()
+            .ToArray();
+
+        if (values.Length == 0)
+            return new ParsedEstimate(null, null);
+
+        return new ParsedEstimate(values.Min(), values.Max());
+    }
+
+    private sealed record ParsedEstimate(int? MinDays, int? MaxDays);
 }

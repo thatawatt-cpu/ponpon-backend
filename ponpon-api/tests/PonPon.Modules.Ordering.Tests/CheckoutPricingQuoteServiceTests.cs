@@ -66,8 +66,9 @@ public sealed class CheckoutPricingQuoteServiceTests
         var shippingRates = new FakeShippingRateQuoteService(
             45m,
             [
-                new ShippingRateQuoteOption("EXPRESS", 80m),
-                new ShippingRateQuoteOption("ECONOMY", 45m)
+                new ShippingRateQuoteOption("EXPRESS", 80m, 1, 1),
+                new ShippingRateQuoteOption("STANDARD", 60m, 3, 3),
+                new ShippingRateQuoteOption("ECONOMY", 45m, 5, 5)
             ]);
         var service = CreateService(product, shippingRates);
 
@@ -83,8 +84,8 @@ public sealed class CheckoutPricingQuoteServiceTests
             .GetResult();
 
         AssertEqual(true, draft.IsFinal);
-        AssertEqual("ECONOMY", draft.ShippingChannel);
-        AssertEqual(145m, draft.Pricing.GrandTotal);
+        AssertEqual("STANDARD", draft.ShippingChannel);
+        AssertEqual(160m, draft.Pricing.GrandTotal);
     }
 
     private static CheckoutPricingQuoteService CreateService(
@@ -172,7 +173,7 @@ public sealed class CheckoutPricingQuoteServiceTests
         public Task<IReadOnlyCollection<ShippingRateQuoteOption>> GetShippingOptionsAsync(
             ShippingRateQuoteRequest request,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(options ?? [new ShippingRateQuoteOption(request.ShippingChannel, amount)]);
+            => Task.FromResult(options ?? [new ShippingRateQuoteOption(request.ShippingChannel, amount, null, null)]);
     }
 
     private sealed class FakeProductRepository(Product product) : IProductRepository

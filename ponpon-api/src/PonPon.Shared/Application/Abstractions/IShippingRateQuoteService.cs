@@ -16,7 +16,11 @@ public sealed record ShippingRateQuoteRequest(
     double HeightCm,
     string ShippingChannel);
 
-public sealed record ShippingRateQuoteOption(string ShippingChannel, decimal Amount);
+public sealed record ShippingRateQuoteOption(
+    string ShippingChannel,
+    decimal Amount,
+    int? EstimatedMinDays,
+    int? EstimatedMaxDays);
 
 public interface IShippingRateQuoteService
 {

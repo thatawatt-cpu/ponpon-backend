@@ -339,14 +339,21 @@ public sealed class CheckoutPricingQuoteService(
             .Select(x => new
             {
                 ShippingChannel = x.Key,
-                TotalAmount = x.Sum(option => option.Amount)
+                EstimatedMinDays = x.Any(option => option.EstimatedMinDays.HasValue)
+                    ? x.Max(option => option.EstimatedMinDays)
+                    : null,
+                EstimatedMaxDays = x.Any(option => option.EstimatedMaxDays.HasValue)
+                    ? x.Max(option => option.EstimatedMaxDays)
+                    : null
             })
-            .OrderBy(x => x.TotalAmount)
+            .OrderBy(x => x.EstimatedMinDays ?? int.MaxValue)
+            .ThenBy(x => x.EstimatedMaxDays ?? x.EstimatedMinDays ?? int.MaxValue)
             .ThenBy(x => x.ShippingChannel, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+            .ToArray();
 
-        return standard?.ShippingChannel
-            ?? throw new BadRequestException("No shipping channel is available for this order.");
+        return standard.Length == 0
+            ? throw new BadRequestException("No shipping channel is available for this order.")
+            : standard[(standard.Length - 1) / 2].ShippingChannel;
     }
 
     private static string BuildSpaceSeparated(IEnumerable<string> parts)
