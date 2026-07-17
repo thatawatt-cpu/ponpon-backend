@@ -36,4 +36,9 @@ public sealed record ShippingRateResponse(
     string ServiceName,
     string ServiceCode,
     decimal Price,
-    string? EstimateTime);
+    string? EstimateTime,
+    string OptionType,
+    string Label,
+    bool IsDefault,
+    int? EstimatedMinDays,
+    int? EstimatedMaxDays);

@@ -46,6 +46,43 @@ return it as `selectedShippingChannel`. The frontend must send that selected cha
 creating the order. If shipping details are missing, `selectedShippingChannel` is `null`
 and the quote remains partial.
 
+Shipping options:
+
+`POST /api/shipping/rates` returns only the customer-facing choices: cheapest and fastest.
+The cheapest option is always `isDefault: true`. If the same courier is both cheapest and
+fastest, the API returns one option with `optionType: "cheapest_fastest"`.
+
+```json
+[
+  {
+    "courierCode": "FLASH",
+    "courierName": "Flash Express",
+    "serviceName": "Flash Express",
+    "serviceCode": "FLASH",
+    "price": 45,
+    "estimateTime": "2-3 วัน",
+    "optionType": "cheapest",
+    "label": "ถูกที่สุด",
+    "isDefault": true,
+    "estimatedMinDays": 2,
+    "estimatedMaxDays": 3
+  },
+  {
+    "courierCode": "KERRY",
+    "courierName": "Kerry Express",
+    "serviceName": "Kerry Express",
+    "serviceCode": "KERRY",
+    "price": 65,
+    "estimateTime": "1 วัน",
+    "optionType": "fastest",
+    "label": "เร็วที่สุด",
+    "isDefault": false,
+    "estimatedMinDays": 1,
+    "estimatedMaxDays": 1
+  }
+]
+```
+
 Render `lines`, `itemSubtotal`, `shippingAmount`, `couponDiscountAmount`, `vatAmount`, `grandTotal`, and `adjustments`. Treat HTTP 400 as an invalid coupon, unavailable quota/stock, unsupported shipping address, or invalid request and show the API error message.
 
 Admin endpoints:
