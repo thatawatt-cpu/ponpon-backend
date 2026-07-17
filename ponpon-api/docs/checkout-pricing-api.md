@@ -48,22 +48,35 @@ selected channel when creating the order. If shipping details are missing,
 
 Shipping options:
 
-`POST /api/shipping/rates` returns only the customer-facing choices: standard and fastest.
-The standard option is the middle delivery-day option and is always `isDefault: true`.
-The fastest option has the lowest estimated delivery days. If the same courier is both
-standard and fastest, the API returns one option with `optionType: "standard_fastest"`.
+`POST /api/shipping/rates` returns only the customer-facing choices: cheapest, standard,
+and fastest. The standard option is the middle delivery-day option and is `isDefault:
+true` when available. The fastest option has the lowest estimated delivery days. If two
+choices resolve to the same courier, the API returns that courier only once.
 
 ```json
 [
+  {
+    "courierCode": "DHL",
+    "courierName": "DHL",
+    "serviceName": "DHL Eco",
+    "serviceCode": "DHL",
+    "price": 22,
+    "estimateTime": "4-5 วัน",
+    "optionType": "cheapest",
+    "label": "ถูกสุด",
+    "isDefault": false,
+    "estimatedMinDays": 4,
+    "estimatedMaxDays": 5
+  },
   {
     "courierCode": "FLASH",
     "courierName": "Flash Express",
     "serviceName": "Flash Express",
     "serviceCode": "FLASH",
-    "price": 45,
+    "price": 25,
     "estimateTime": "2-3 วัน",
     "optionType": "standard",
-    "label": "ปานกลาง",
+    "label": "เวลากลางๆ",
     "isDefault": true,
     "estimatedMinDays": 2,
     "estimatedMaxDays": 3
@@ -76,7 +89,7 @@ standard and fastest, the API returns one option with `optionType: "standard_fas
     "price": 65,
     "estimateTime": "1 วัน",
     "optionType": "fastest",
-    "label": "เร็วที่สุด",
+    "label": "เร็วสุด",
     "isDefault": false,
     "estimatedMinDays": 1,
     "estimatedMaxDays": 1

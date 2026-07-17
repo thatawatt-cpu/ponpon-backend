@@ -41,25 +41,38 @@ public sealed class CheckShippingRatesHandler
         if (availableRates.Length == 0)
             return [];
 
-        var standard = SelectStandardByDeliveryDays(availableRates);
+        var cheapest = availableRates
+            .OrderBy(x => x.Rate.Price)
+            .ThenBy(x => x.Estimate.MinDays ?? int.MaxValue)
+            .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays ?? int.MaxValue)
+            .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
+            .First();
 
         var fastest = availableRates
             .Where(x => x.Estimate.MinDays.HasValue)
             .OrderBy(x => x.Estimate.MinDays)
             .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays)
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+            .FirstOrDefault() ?? cheapest;
 
-        if (fastest is null || SameShippingOption(standard.Rate, fastest.Rate))
+        var standard = SelectStandardByDeliveryDays(availableRates, [cheapest.Rate, fastest.Rate]);
+
+        var options = new List<ShippingRateResponse>
         {
-            return [ToResponse(standard, "standard_fastest", "ปานกลางและเร็วที่สุด", true)];
+            ToResponse(cheapest, "cheapest", "ถูกสุด", standard is null)
+        };
+
+        if (standard is not null)
+        {
+            options.Add(ToResponse(standard, "standard", "เวลากลางๆ", true));
         }
 
-        return
-        [
-            ToResponse(standard, "standard", "ปานกลาง", true),
-            ToResponse(fastest, "fastest", "เร็วที่สุด", false)
-        ];
+        if (!options.Any(x => SameShippingOption(x, fastest.Rate)))
+        {
+            options.Add(ToResponse(fastest, "fastest", "เร็วสุด", false));
+        }
+
+        return options;
     }
 
     private static ShippingRateResponse ToResponse(
@@ -80,16 +93,26 @@ public sealed class CheckShippingRatesHandler
             candidate.Estimate.MinDays,
             candidate.Estimate.MaxDays);
 
-    private static RateCandidate SelectStandardByDeliveryDays(IReadOnlyCollection<RateCandidate> rates)
+    private static RateCandidate? SelectStandardByDeliveryDays(
+        IReadOnlyCollection<RateCandidate> rates,
+        IReadOnlyCollection<ShippopRateDto> excludedRates)
     {
         var ordered = rates
+            .Where(x => !excludedRates.Any(excluded => SameShippingOption(excluded, x.Rate)))
             .OrderBy(x => x.Estimate.MinDays ?? int.MaxValue)
             .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays ?? int.MaxValue)
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+        if (ordered.Length == 0)
+            return null;
+
         return ordered[(ordered.Length - 1) / 2];
     }
+
+    private static bool SameShippingOption(ShippingRateResponse left, ShippopRateDto right)
+        => string.Equals(left.CourierCode, right.CourierCode, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(left.ServiceCode, right.ServiceCode, StringComparison.OrdinalIgnoreCase);
 
     private static bool SameShippingOption(ShippopRateDto left, ShippopRateDto right)
         => string.Equals(left.CourierCode, right.CourierCode, StringComparison.OrdinalIgnoreCase)
