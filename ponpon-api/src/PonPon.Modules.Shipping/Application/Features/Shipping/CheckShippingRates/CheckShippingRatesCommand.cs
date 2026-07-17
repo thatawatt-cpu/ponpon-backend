@@ -35,4 +35,5 @@ public sealed record ShippingRateResponse(
     string CourierName,
     string ServiceName,
     string ServiceCode,
-    decimal Price);
+    decimal Price,
+    string? EstimateTime);

@@ -29,6 +29,7 @@ public sealed class CheckShippingRatesHandler
         return rates.Select(r => new ShippingRateResponse(
             r.CourierCode, r.CourierName,
             r.ServiceName, r.ServiceCode,
-            r.Price)).ToArray();
+            r.Price,
+            r.EstimateTime)).ToArray();
     }
 }
