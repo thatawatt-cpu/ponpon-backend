@@ -43,35 +43,31 @@ public sealed class CheckShippingRatesHandler
 
         var valueRates = RemoveDominatedRates(availableRates);
 
-        var cheapest = valueRates
+        var cheapest = availableRates
             .OrderBy(x => x.Rate.Price)
             .ThenBy(x => x.Estimate.MinDays ?? int.MaxValue)
             .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays ?? int.MaxValue)
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
             .First();
 
-        var fastest = valueRates
+        var fastest = availableRates
             .Where(x => x.Estimate.MinDays.HasValue)
             .OrderBy(x => x.Estimate.MinDays)
             .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays)
+            .ThenBy(x => x.Rate.Price)
             .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault() ?? cheapest;
 
-        var standard = SelectStandardByDeliveryDays(valueRates, [cheapest, fastest]);
+        var bestValue = SelectBestValue(valueRates, fastest) ?? fastest;
 
         var options = new List<ShippingRateResponse>
         {
-            ToResponse(cheapest, "cheapest", "ถูกสุด", standard is null)
+            ToResponse(bestValue, "best_value", "คุ้มที่สุด", true)
         };
 
-        if (standard is not null)
+        if (!SameShippingOption(bestValue.Rate, fastest.Rate))
         {
-            options.Add(ToResponse(standard, "standard", "เวลากลางๆ", true));
-        }
-
-        if (!options.Any(x => SameShippingOption(x, fastest.Rate)))
-        {
-            options.Add(ToResponse(fastest, "fastest", "เร็วสุด", false));
+            options.Add(ToResponse(fastest, "fastest", "เร็วที่สุด", false));
         }
 
         return options;
@@ -95,23 +91,29 @@ public sealed class CheckShippingRatesHandler
             candidate.Estimate.MinDays,
             candidate.Estimate.MaxDays);
 
-    private static RateCandidate? SelectStandardByDeliveryDays(
+    private static RateCandidate? SelectBestValue(
         IReadOnlyCollection<RateCandidate> rates,
-        IReadOnlyCollection<RateCandidate> excludedRates)
+        RateCandidate fastest)
     {
-        var ordered = rates
-            .Where(x => !excludedRates.Any(excluded =>
-                SameShippingOption(excluded.Rate, x.Rate)
-                || SameDeliveryWindow(excluded.Estimate, x.Estimate)))
-            .OrderBy(x => x.Estimate.MinDays ?? int.MaxValue)
-            .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays ?? int.MaxValue)
-            .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
+        var candidates = rates
+            .Where(x => !SameShippingOption(x.Rate, fastest.Rate))
             .ToArray();
 
-        if (ordered.Length == 0)
+        if (candidates.Length == 0)
             return null;
 
-        return ordered[(ordered.Length - 1) / 2];
+        var minPrice = candidates.Min(x => x.Rate.Price);
+        var maxPrice = candidates.Max(x => x.Rate.Price);
+        var minDays = candidates.Min(GetComparableDeliveryDays);
+        var maxDays = candidates.Max(GetComparableDeliveryDays);
+
+        return candidates
+            .OrderBy(x => GetNormalizedValueScore(x, minPrice, maxPrice, minDays, maxDays))
+            .ThenBy(x => x.Estimate.MinDays ?? int.MaxValue)
+            .ThenBy(x => x.Estimate.MaxDays ?? x.Estimate.MinDays ?? int.MaxValue)
+            .ThenBy(x => x.Rate.Price)
+            .ThenBy(x => x.Rate.CourierCode, StringComparer.OrdinalIgnoreCase)
+            .First();
     }
 
     private static IReadOnlyCollection<RateCandidate> RemoveDominatedRates(IReadOnlyCollection<RateCandidate> rates)
@@ -135,11 +137,32 @@ public sealed class CheckShippingRatesHandler
         => string.Equals(left.CourierCode, right.CourierCode, StringComparison.OrdinalIgnoreCase)
            && string.Equals(left.ServiceCode, right.ServiceCode, StringComparison.OrdinalIgnoreCase);
 
-    private static bool SameDeliveryWindow(ParsedEstimate left, ParsedEstimate right)
-        => left.MinDays == right.MinDays && left.MaxDays == right.MaxDays;
-
     private static bool IsNoMoreExpensive(RateCandidate left, RateCandidate right)
         => left.Rate.Price <= right.Rate.Price;
+
+    private static decimal GetNormalizedValueScore(
+        RateCandidate candidate,
+        decimal minPrice,
+        decimal maxPrice,
+        int minDays,
+        int maxDays)
+    {
+        var priceRange = maxPrice - minPrice;
+        var priceScore = priceRange <= 0
+            ? 0m
+            : (candidate.Rate.Price - minPrice) / priceRange;
+        var dayRange = maxDays - minDays;
+        var deliveryScore = dayRange <= 0
+            ? 0m
+            : (GetComparableDeliveryDays(candidate) - minDays) / (decimal)dayRange;
+
+        return (priceScore + deliveryScore) / 2m;
+    }
+
+    private static int GetComparableDeliveryDays(RateCandidate candidate)
+        => candidate.Estimate.MaxDays
+           ?? candidate.Estimate.MinDays
+           ?? int.MaxValue;
 
     private static bool IsNoSlower(RateCandidate left, RateCandidate right)
     {
